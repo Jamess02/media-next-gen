@@ -22,8 +22,8 @@ import { MockLlmClient } from "./llm/mock-client.js";
 import type { LlmClient } from "./llm/types.js";
 import { CHANGELOG_TYPES, type ChangelogType } from "./protocol/constants.js";
 import { EditorialPipeline, type PipelineStage } from "./pipeline.js";
+import { buildSourceCatalogue } from "./sources/catalogue.js";
 import { MOCK_ADAPTERS } from "./sources/mock-sources.js";
-import { worldBankAdapter } from "./sources/worldbank.js";
 import type { SourceAdapter } from "./sources/types.js";
 
 // Node >= 20.12 charge les .env nativement : pas besoin de dotenv.
@@ -141,11 +141,17 @@ async function publish(command: PublishCommand): Promise<void> {
 
   let adapters: readonly SourceAdapter[];
   if (command.realSources) {
-    // Sources reelles, sans clef d'API requise.
-    adapters = [
-      worldBankAdapter({ country: "EMU", indicator: "FP.CPI.TOTL.ZG" }),
-      worldBankAdapter({ country: "WLD", indicator: "NY.GDP.MKTP.KD.ZG" }),
-    ];
+    const catalogue = buildSourceCatalogue();
+    adapters = catalogue.adapters;
+    // §EP-003 — une source absente se declare. La taire laisserait croire a une
+    // couverture complete.
+    if (catalogue.skipped.length > 0) {
+      console.log("Sources non branchees :");
+      for (const s of catalogue.skipped) {
+        console.log(`  - ${s.id} : ${s.reason}`);
+      }
+      console.log("");
+    }
   } else {
     adapters = MOCK_ADAPTERS;
   }

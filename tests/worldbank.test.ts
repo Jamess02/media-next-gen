@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { worldBankAdapter } from "../src/sources/worldbank.js";
+import { stubFetch } from "./helpers.js";
 
 const QUERY = { topic: "inflation", since: "2020-01-01T00:00:00Z" };
 
@@ -17,17 +18,6 @@ const adapter = worldBankAdapter({
   indicator: "FP.CPI.TOTL.ZG",
   years: 3,
 });
-
-function stubFetch(payload: unknown, ok = true, status = 200): void {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok,
-      status,
-      json: async () => payload,
-    })),
-  );
-}
 
 const point = (date: string, value: number | null) => ({
   indicator: { id: "FP.CPI.TOTL.ZG", value: "Inflation, consumer prices (annual %)" },
@@ -115,7 +105,7 @@ describe("adaptateur Banque mondiale", () => {
   });
 
   it("echoue sur une reponse HTTP non OK", async () => {
-    stubFetch(null, false, 503);
+    stubFetch(null, { ok: false, status: 503 });
     await expect(adapter.fetch(QUERY)).rejects.toThrow(/HTTP 503/);
   });
 

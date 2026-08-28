@@ -1,10 +1,10 @@
 /**
  * Adaptateur REEL — API Banque mondiale (tier 1, sans clef d'API).
  *
- * Implementation de reference : elle montre que brancher une vraie source
- * n'exige aucune modification du pipeline. Meme interface `SourceAdapter`,
- * meme passage par la passerelle, donc meme journalisation (§9.4) et meme
- * classification en tier (§4) que les adaptateurs simules.
+ * Dependances : `http.ts` (fetch mutualise) et `types.ts` (contrat, import de
+ * type uniquement). Aucun acces au journal d'audit ni au registre de tiers :
+ * un adaptateur ne peut donc ni oublier de journaliser, ni s'auto-attribuer un
+ * tier avantageux. Ces deux responsabilites appartiennent a la passerelle.
  *
  * Deux details que le protocole rend obligatoires et qu'un adaptateur naif
  * escamoterait :
@@ -17,10 +17,11 @@
  *    precision (EP-005).
  */
 
+import { SourceFetchError, buildUrl, fetchJson, formatMeasure } from "./http.js";
 import type { FetchOutcome, SourceAdapter, SourceQuery } from "./types.js";
 
 const API_ROOT = "https://api.worldbank.org/v2";
-const TIMEOUT_MS = 15_000;
+const SOURCE_NAME = "Banque mondiale";
 
 /** Forme du payload Banque mondiale : [metadonnees, observations]. */
 interface WorldBankMeta {
@@ -58,31 +59,25 @@ export function worldBankAdapter(
 
     async fetch(_query: SourceQuery): Promise<FetchOutcome> {
       const currentYear = new Date().getUTCFullYear();
-      const requestedUrl =
+      const requestedUrl = buildUrl(
         `${API_ROOT}/country/${encodeURIComponent(options.country)}` +
-        `/indicator/${encodeURIComponent(options.indicator)}` +
-        `?format=json&per_page=${years}` +
-        `&date=${currentYear - years}:${currentYear}`;
+          `/indicator/${encodeURIComponent(options.indicator)}`,
+        {
+          format: "json",
+          per_page: years,
+          date: `${currentYear - years}:${currentYear}`,
+        },
+      );
 
-      const response = await fetch(requestedUrl, {
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        headers: { accept: "application/json" },
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Banque mondiale : HTTP ${response.status} sur ${requestedUrl}`,
-        );
-      }
-
-      const raw: unknown = await response.json();
+      const raw = await fetchJson(requestedUrl, { sourceName: SOURCE_NAME });
 
       // L'API repond 200 avec un objet d'erreur en cas d'indicateur inconnu :
       // on ne peut pas se fier au seul code HTTP.
       if (!Array.isArray(raw) || raw.length < 2) {
-        throw new Error(
-          `Banque mondiale : reponse inattendue pour ${options.indicator} ` +
-            `(indicateur ou pays inconnu ?)`,
+        throw new SourceFetchError(
+          SOURCE_NAME,
+          requestedUrl,
+          `reponse inattendue pour ${options.indicator} (indicateur ou pays inconnu ?)`,
         );
       }
 
@@ -96,17 +91,15 @@ export function worldBankAdapter(
         .filter((p) => p.value === null)
         .map((p) => p.date);
 
-      if (observed.length === 0) {
-        throw new Error(
-          `Banque mondiale : aucune valeur non nulle pour ${options.indicator} ` +
-            `sur ${options.country} (${points.length} annee(s) interrogee(s)).`,
-        );
-      }
-
       // Les points arrivent du plus recent au plus ancien.
       const latest = observed[0];
       if (latest === undefined) {
-        throw new Error("Banque mondiale : serie vide apres filtrage.");
+        throw new SourceFetchError(
+          SOURCE_NAME,
+          requestedUrl,
+          `aucune valeur non nulle pour ${options.indicator} sur ${options.country} ` +
+            `(${points.length} annee(s) interrogee(s))`,
+        );
       }
 
       const coverage =
@@ -120,7 +113,7 @@ export function worldBankAdapter(
         raw,
         observations: [
           {
-            source: "Banque mondiale",
+            source: SOURCE_NAME,
             // URL citable par le lecteur, distincte de l'URL d'API interrogee.
             url:
               `https://data.worldbank.org/indicator/${options.indicator}` +
@@ -130,7 +123,7 @@ export function worldBankAdapter(
             type: "donnee-macro",
             resume:
               `${latest.indicator.value} — ${latest.country.value} : ` +
-              `${formatValue(latest.value)} (${latest.date}). ` +
+              `${formatMeasure(latest.value)} (${latest.date}). ` +
               `Couverture : ${coverage}. ` +
               `Serie mise a jour le ${meta.lastupdated ?? "date inconnue"}.`,
           },
@@ -138,26 +131,6 @@ export function worldBankAdapter(
       };
     },
   };
-}
-
-/**
- * EP-005 — "Pas d'illusion de precision."
- *
- * L'API rend des flottants bruts : une inflation a `2.46705543774613`. Ces
- * quatorze decimales sont un artefact de representation binaire, pas une
- * mesure : la Banque mondiale ne connait pas l'inflation zone euro au
- * cent-milliardieme de point. Republier ce nombre tel quel affirmerait une
- * precision qui n'existe pas.
- *
- * On arrondit donc a deux decimales — ce que les publications de l'institution
- * elle-meme utilisent — et le resume conserve le lien vers la serie complete
- * pour qui veut la valeur brute.
- */
-function formatValue(value: number): string {
-  const rounded = Math.round(value * 100) / 100;
-  // `toFixed` figerait "3" en "3.00" : on ne veut pas non plus inventer des
-  // decimales absentes.
-  return String(rounded);
 }
 
 /**

@@ -55,6 +55,30 @@ function toClaimText(resume: string): string {
   return trimmed.endsWith(".") ? trimmed : `${trimmed}.`;
 }
 
+/**
+ * Marqueurs par lesquels une source signale elle-meme que sa valeur n'est pas
+ * une observation ferme : estimation, projection, serie incomplete, solution
+ * preliminaire.
+ */
+const CAVEAT_MARKERS =
+  /estimation|projection|preliminaire|revisee|partiel|millesime/i;
+
+/**
+ * §3 — choix du type de claim.
+ *
+ * Un tier 1/2 ne suffit PAS a faire un `fait`. Si la source declare elle-meme
+ * que sa valeur peut etre une estimation ou une solution provisoire — ce que
+ * font le FMI (WEO), FRED (millesimes) et l'USGS (solutions automatiques) —
+ * alors la claim est une `estimation`, pas un fait.
+ *
+ * Sans cette regle, le pipeline publierait comme fait etabli un chiffre dont
+ * la source dit, dans la phrase meme, qu'il peut changer.
+ */
+function chooseClaimType(event: RawEvent): "fait" | "estimation" | "inférence" {
+  if (event.tier > 2) return "inférence";
+  return CAVEAT_MARKERS.test(event.resume) ? "estimation" : "fait";
+}
+
 export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
   /* --- §5.1 : retenir le primaire, ecarter le secondaire ----------------- */
   veilleur: (request) => {
@@ -88,14 +112,13 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
     const { sujet, observations_retenues } = parse<AnalystePayload>(request);
     // §3 — plafond de 3 claims structurantes.
     const events = observations_retenues.slice(0, 3);
+    const dropped = observations_retenues.slice(3);
 
     return {
       candidates: events.map((event, index) => ({
         id: `claim-${index + 1}`,
+        type: chooseClaimType(event),
         text: toClaimText(event.resume),
-        // Un tier 1/2 documente une donnee observee ; en dessous, on ne peut
-        // pas parler de fait (§3 / EP-001).
-        type: event.tier <= 2 ? "fait" : "inférence",
         // Plafonne a 2 : verifier qu'une source soutient PRECISEMENT une
         // affirmation demande un jugement qu'un responder simule n'a pas.
         proposed_evidence_level: 2,
@@ -116,6 +139,16 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
       publication_caveats: [
         "Series annuelles : la valeur la plus recente peut porter plusieurs mois de decalage et faire l'objet de revisions.",
         "Analyse produite par des responders simules : aucun jugement humain n'a valide la correspondance entre les chiffres et les affirmations.",
+        // §3 plafonne a 3 claims, mais ce qui a ete ecarte doit se declarer :
+        // un lecteur qui voit 3 sources doit savoir que 6 autres ont ete
+        // collectees et non traitees, sinon la couverture parait complete.
+        ...(dropped.length > 0
+          ? [
+              `Plafond de 3 claims structurantes atteint (§3) : ${dropped.length} observation(s) ` +
+                `collectee(s) n'ont pas ete traitees dans cet article — ` +
+                `${dropped.map((e) => e.source).join(", ")}. Elles justifieraient un article distinct.`,
+            ]
+          : []),
       ],
     };
   },

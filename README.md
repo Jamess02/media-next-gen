@@ -69,8 +69,9 @@ src/
   agents/       §5 — un module par rôle
     veilleur → analyste → fact-checker → redacteur → redacteur-en-chef → editeur
 
-  sources/      Accès externe : registre de tiers, passerelle, adaptateurs
-                (worldbank.ts = adaptateur RÉEL, sans clé d'API)
+  sources/      Accès externe : registre de tiers, passerelle, catalogue
+                http.ts = fetch mutualisé (timeout, statut, parsing)
+                worldbank / imf / eurostat / usgs / fred = adaptateurs RÉELS
   llm/          Frontière modèle : interface + client Anthropic + mock
   audit/        §9.4 — journal JSONL + archives adressées par contenu
   editorial/    §6 — changelog public + flux de correction
@@ -107,9 +108,21 @@ le gate au lieu de l'appliquer.
 | | défaut | `--real-sources` | `--mode=live` |
 |---|---|---|---|
 | LLM | Réponses scriptées (Zembla) | Réponses **adaptatives** dérivées des données reçues | API Claude (`claude-opus-5`) |
-| Sources | Adaptateurs simulés | **API Banque mondiale**, réelle, sans clé | idem |
+| Sources | Adaptateurs simulés | **5 sources réelles** (voir ci-dessous) | idem |
 | Coût | nul | nul | facturé |
 | Usage | exercer le gate (pièges posés) | démo bout-en-bout sur données réelles | production |
+
+### Sources branchées
+
+| Source | Tier | Clé | Piège traité |
+|---|---|---|---|
+| [Banque mondiale](src/sources/worldbank.ts) | 1 | non | Années nulles comptées, flottants bruts arrondis (EP-005) |
+| [FMI (WEO)](src/sources/imf.ts) | 1 | non | **Projections mélangées aux observations** : la série va jusqu'en 2031 sans que l'API distingue. Seule la dernière année antérieure à l'année en cours est retenue (§3) |
+| [Eurostat](src/sources/eurostat.ts) | 1 | non | Index JSON-stat à plat : l'adaptateur **refuse de deviner** si une dimension n'est pas figée |
+| [USGS](src/sources/usgs.ts) | 1 | non | Solution `automatic` signalée comme préliminaire et révisable (§5.2) |
+| [FRED](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Valeurs `"."` jamais converties en 0 ; clé dans l'URL, caviardée au journal |
+
+Sans clé FRED, la source est **déclarée absente** plutôt que silencieusement omise (EP-003). Trois autres sources du §4 sont documentées comme non branchées, avec leur motif — dont GDELT, dont le certificat TLS a expiré : contourner la vérification TLS exposerait le pipeline à une interception.
 
 Le mode `live` exige `--mode=live` **et** `ANTHROPIC_API_KEY`. Un pipeline qui
 appellerait une API payante et publierait de vraies affirmations parce qu'une
@@ -128,12 +141,12 @@ que le protocole interdit.
 
 ## Ce qui reste à faire
 
-1. **Étendre les adaptateurs réels** — la Banque mondiale
-   ([worldbank.ts](src/sources/worldbank.ts)) sert d'implémentation de
-   référence. FRED, Comtrade, GDELT, ReliefWeb ou OpenSanctions se branchent en
-   ajoutant un fichier, sans toucher au pipeline. FRED et GNews demandent une
-   clé ; ReliefWeb et Comtrade n'en demandent pas. Les clés se mettent dans
-   `.env` (jamais commité) : le journal d'audit les caviarde automatiquement.
+1. **Sources restantes** — trois du §4 attendent une action externe :
+   ReliefWeb (demander un `appname` approuvé), OpenSanctions (clé), GDELT
+   (certificat TLS à corriger côté source). Comtrade et l'OCDE demandent un
+   travail de format supplémentaire (SDMX). Le contrat `SourceAdapter` est
+   stable : chaque ajout est un fichier plus une entrée au
+   [catalogue](src/sources/catalogue.ts).
 2. **Reprise en collecte** — le §9.3 offre deux issues à une claim rejetée :
    la reformulation (implémentée) ou le **retour en collecte** avec une fenêtre
    élargie (pas encore).
