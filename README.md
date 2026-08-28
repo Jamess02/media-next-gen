@@ -44,6 +44,7 @@ la violation **impossible** plutôt qu'à la détecter après coup.
 | EP-005 — pas d'illusion de précision | On ne peut pas construire un chiffre sans couverture, fraîcheur, méthode et incertitude. Sinon `qualify()` rend du texte. | [scoring.ts](src/protocol/scoring.ts) |
 | §4 / EP-001 — tiers de sources | Le tier est **dérivé du domaine**, jamais déclaré par un agent. Domaine inconnu ⇒ tier 3, jamais mieux. | [registry.ts](src/sources/registry.ts) |
 | §9.4 — journalisation | Imposée par la passerelle, pas par la discipline des adaptateurs. Un adaptateur ne peut pas l'oublier. | [gateway.ts](src/sources/gateway.ts) |
+| §9.4 — journal versionné **sans secrets** | Le journal part sur un dépôt public, or FRED, GNews et ACLED transportent leur clé **dans l'URL**. Les URLs et messages d'erreur sont caviardés au point de passage unique du journal, et le caviardage est déclaré. | [redaction.ts](src/audit/redaction.ts) |
 | §9.6 — changelog versionné | Fichier markdown **append-only**. Le module n'expose ni `update` ni `delete`. | [changelog.ts](src/editorial/changelog.ts) |
 | §9.1 — protocole en prompt système | Injecté par la classe de base. Aucun chemin de code n'appelle le modèle sans lui. | [base.ts](src/agents/base.ts) |
 | §6 — correction sans réécriture | `published_at` est réimposé depuis la version publiée : même une fonction d'édition boguée ne peut pas antidater un article ni effacer une correction. | [revision.ts](src/editorial/revision.ts) |
@@ -131,7 +132,8 @@ que le protocole interdit.
    ([worldbank.ts](src/sources/worldbank.ts)) sert d'implémentation de
    référence. FRED, Comtrade, GDELT, ReliefWeb ou OpenSanctions se branchent en
    ajoutant un fichier, sans toucher au pipeline. FRED et GNews demandent une
-   clé ; ReliefWeb et Comtrade n'en demandent pas.
+   clé ; ReliefWeb et Comtrade n'en demandent pas. Les clés se mettent dans
+   `.env` (jamais commité) : le journal d'audit les caviarde automatiquement.
 2. **Reprise en collecte** — le §9.3 offre deux issues à une claim rejetée :
    la reformulation (implémentée) ou le **retour en collecte** avec une fenêtre
    élargie (pas encore).

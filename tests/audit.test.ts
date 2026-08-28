@@ -84,6 +84,62 @@ describe("journal d'audit", () => {
     expect(a.raw_sha256).toBe(b.raw_sha256);
   });
 
+  it("caviarde la clef d'API avant ecriture sur disque (§9.4)", async () => {
+    const log = newLog();
+    await log.record({
+      kind: "source",
+      agent: "veilleur",
+      target:
+        "https://api.stlouisfed.org/fred/series?series_id=GDP&api_key=CLEF_SECRETE_REELLE",
+      dateObserved: "2026-08-27T09:00:00Z",
+      raw: { ok: true },
+    });
+
+    // Le fichier ecrit est ce qui part sur le depot public : c'est lui qu'on
+    // inspecte, pas seulement l'objet retourne.
+    const journal = await readFile(join(workDir, "journal.jsonl"), "utf8");
+    expect(journal).not.toMatch(/CLEF_SECRETE_REELLE/);
+    expect(journal).toMatch(/series_id=GDP/);
+
+    const record = JSON.parse(journal.trim()) as {
+      target: string;
+      redacted_params: string[];
+    };
+    expect(record.redacted_params).toEqual(["apikey"]);
+  });
+
+  it("caviarde aussi les URLs presentes dans un message d'erreur", async () => {
+    const log = newLog();
+    await log.record({
+      kind: "source",
+      agent: "veilleur",
+      target: "https://api.example.org/v1",
+      dateObserved: "2026-08-27T09:00:00Z",
+      raw: {},
+      error:
+        "HTTP 503 sur https://api.example.org/v1?api_key=FUITE_PAR_LERREUR",
+    });
+
+    const journal = await readFile(join(workDir, "journal.jsonl"), "utf8");
+    expect(journal).not.toMatch(/FUITE_PAR_LERREUR/);
+    expect(journal).toMatch(/HTTP 503/);
+  });
+
+  it("n'annonce aucun caviardage quand l'URL n'a pas de secret", async () => {
+    const record = await newLog().record({
+      kind: "source",
+      agent: "veilleur",
+      target: "https://api.worldbank.org/v2/country/EMU?format=json",
+      dateObserved: "2026-08-27T09:00:00Z",
+      raw: {},
+    });
+
+    expect(record.redacted_params).toBeUndefined();
+    expect(record.target).toBe(
+      "https://api.worldbank.org/v2/country/EMU?format=json",
+    );
+  });
+
   it("journalise aussi les echecs", async () => {
     const record = await newLog().record({
       kind: "source",

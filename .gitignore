@@ -4,8 +4,15 @@ dist/
 .env.local
 
 # Archives d'audit (§9.4) : les reponses brutes des sources externes.
-# Volumineuses et potentiellement soumises aux CGU des fournisseurs de donnees.
-# Le journal .jsonl, lui, est VERSIONNE : c'est la trace de preuve.
+#
+# NE PAS RETIRER CETTE LIGNE. Ces archives ne sont PAS caviardees — leur raison
+# d'etre est la fidelite integrale pour l'audit — et peuvent donc contenir des
+# clefs d'API ou des donnees sous CGU restrictives. Les versionner dans un depot
+# public publierait ces secrets, definitivement : l'historique Git les conserve
+# meme apres suppression du fichier.
+#
+# Le journal .jsonl, lui, est VERSIONNE : c'est la trace de preuve, et ses URLs
+# sont caviardees de leurs secrets par src/audit/redaction.ts.
 audit/raw/
 
 # Articles produits par le mode simulation. En production, `output/` serait

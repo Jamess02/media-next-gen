@@ -7,9 +7,16 @@
  *
  *  - `audit/journal.jsonl` : une ligne par appel. Compact, VERSIONNE dans le
  *    repo. C'est la trace de preuve : elle survit au projet.
- *  - `audit/raw/<sha256>.json` : la reponse brute integrale. Volumineuse et
- *    parfois soumise aux CGU du fournisseur, donc hors versionnement
- *    (voir .gitignore). Le journal pointe vers elle par empreinte.
+ *  - `audit/raw/<sha256>.json` : la reponse brute integrale. Volumineuse,
+ *    parfois soumise aux CGU du fournisseur, et NON CAVIARDEE — elle peut donc
+ *    contenir des secrets. Hors versionnement (voir .gitignore). Le journal
+ *    pointe vers elle par empreinte.
+ *
+ * Parce que `journal.jsonl` est versionne — et potentiellement pousse sur un
+ * depot public — les URLs et messages d'erreur qui y entrent sont caviardes de
+ * leurs secrets (voir `redaction.ts`). Plusieurs sources du §4 transportent
+ * leur clef d'API dans l'URL : sans ce filtre, les journaliser reviendrait a
+ * les publier.
  *
  * L'adressage par contenu (sha256) donne la deduplication gratuitement et rend
  * une archive infalsifiable : modifier le fichier change son nom.
@@ -23,6 +30,8 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { redactText, redactUrl } from "./redaction.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AUDIT_DIR = join(HERE, "..", "..", "audit");
@@ -49,6 +58,12 @@ export interface AuditRecord {
   raw_path: string;
   /** Renseigne si l'appel a echoue. La trace d'un echec compte aussi. */
   error?: string;
+  /**
+   * Parametres caviardes dans `target` et `error` (voir `redaction.ts`).
+   * Present uniquement si un caviardage a eu lieu : une URL alteree en silence
+   * ne serait plus une preuve, donc l'alteration se declare.
+   */
+  redacted_params?: readonly string[];
 }
 
 export interface AuditLogOptions {
@@ -110,15 +125,36 @@ export class AuditLog {
     const relativePath = `raw/${sha256}.json`;
     const absolutePath = join(this.rawDir, `${sha256}.json`);
 
+    // Caviardage AVANT ecriture. Impose ici, au point de passage unique du
+    // journal : un adaptateur ne peut pas l'oublier, exactement comme il ne
+    // peut pas oublier de journaliser.
+    //
+    // `target` et `error` sont tous deux traites : un message d'erreur du type
+    // "HTTP 503 sur https://api...?api_key=SECRET" ferait autrement transiter
+    // la clef par le champ `error`.
+    const targetRedaction = redactUrl(input.target);
+    const errorRedaction =
+      input.error === undefined ? undefined : redactText(input.error);
+
+    const redactedParams = [
+      ...new Set([
+        ...targetRedaction.redactedParams,
+        ...(errorRedaction?.redactedParams ?? []),
+      ]),
+    ];
+
     const record: AuditRecord = {
       logged_at: new Date().toISOString(),
       kind: input.kind,
       agent: input.agent,
-      target: input.target,
+      target: targetRedaction.redacted,
       date_observed: input.dateObserved,
       raw_sha256: sha256,
       raw_path: relativePath,
-      ...(input.error === undefined ? {} : { error: input.error }),
+      ...(errorRedaction === undefined
+        ? {}
+        : { error: errorRedaction.redacted }),
+      ...(redactedParams.length === 0 ? {} : { redacted_params: redactedParams }),
     };
 
     this.records.push(record);
