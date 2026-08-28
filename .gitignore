@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# Archives d'audit (§9.4) : les reponses brutes des sources externes.
+# Volumineuses et potentiellement soumises aux CGU des fournisseurs de donnees.
+# Le journal .jsonl, lui, est VERSIONNE : c'est la trace de preuve.
+audit/raw/
+
+# Articles produits par le mode simulation. En production, `output/` serait
+# consomme par le site et versionne ailleurs ; ici il ne contient que du
+# [SIMULATION] regenere a chaque execution.
+#
+# `changelog-editorial.md` n'est PAS ignore : le §9.6 exige qu'il soit
+# versionne dans le repo.
+output/

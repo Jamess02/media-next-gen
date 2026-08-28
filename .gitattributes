@@ -1,0 +1,10 @@
+# Normalise les fins de ligne : le depot stocke du LF, le poste de travail
+# Windows recoit du CRLF. Sans ca, chaque commit depuis Windows ferait
+# apparaitre tout le fichier comme modifie.
+* text=auto eol=lf
+
+# Le protocole et le changelog sont les documents de reference : les diffs
+# doivent y rester lisibles ligne a ligne.
+*.md text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf

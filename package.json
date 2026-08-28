@@ -1,0 +1,26 @@
+{
+  "name": "media-next-gen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pipeline editorial multi-agents (geopolitique / economie) conforme au Protocole Editorial v1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "zod": "^4.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
