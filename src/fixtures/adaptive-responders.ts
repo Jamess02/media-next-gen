@@ -79,17 +79,62 @@ function chooseClaimType(event: RawEvent): "fait" | "estimation" | "inférence" 
   return CAVEAT_MARKERS.test(event.resume) ? "estimation" : "fait";
 }
 
+/** Mots trop courants pour discriminer un sujet. */
+const STOP_WORDS = new Set([
+  "et", "de", "des", "du", "la", "le", "les", "un", "une", "en", "sur",
+  "dans", "pour", "aux", "au", "par",
+]);
+
+/**
+ * Nombre de termes du sujet presents dans l'observation.
+ *
+ * Substitut GROSSIER du jugement editorial : un vrai Veilleur (LLM) pese la
+ * pertinence, pas des occurrences. Mais un critere explicite et testable vaut
+ * mieux qu'un ordre incident — au moins celui-ci se lit dans le
+ * `selection_reason`, donc se conteste.
+ */
+function topicScore(event: RawEvent, topic: string): number {
+  const haystack = `${event.resume} ${event.source} ${event.type}`.toLowerCase();
+  const terms = topic
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+  return new Set(terms.filter((t) => haystack.includes(t))).size;
+}
+
+/** Date de publication en millisecondes ; 0 si la source ne la fournit pas. */
+function freshness(event: RawEvent): number {
+  if (event.date_published === null) return 0;
+  const parsed = Date.parse(event.date_published);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
   /* --- §5.1 : retenir le primaire, ecarter le secondaire ----------------- */
   veilleur: (request) => {
-    const { evenements } = parse<VeilleurPayload>(request);
-    const primary = evenements.filter((e) => e.tier <= 2);
+    const { sujet, evenements } = parse<VeilleurPayload>(request);
+    const primary = evenements
+      .filter((e) => e.tier <= 2)
+      .map((e) => ({ event: e, score: topicScore(e, sujet) }))
+      // L'etape suivante plafonne a 3 claims (§3) : l'ordre rendu ici decide
+      // donc de ce qui sera publie. Le laisser dependre de l'ordre du
+      // catalogue de sources reviendrait a trancher au hasard.
+      .sort(
+        (a, b) =>
+          b.score - a.score || freshness(b.event) - freshness(a.event),
+      );
     const secondary = evenements.filter((e) => e.tier >= 3);
 
     return {
-      retained: primary.map((e) => ({
+      retained: primary.map(({ event: e, score }) => ({
         url: e.url,
-        selection_reason: `Source de tier ${e.tier} (${e.source}) : emetteur de la donnee, prioritaire sur toute reprise (EP-001).`,
+        selection_reason:
+          `Source de tier ${e.tier} (${e.source}) : emetteur de la donnee, ` +
+          `prioritaire sur toute reprise (EP-001). ` +
+          (score > 0
+            ? `Retenue en priorite : ${score} terme(s) du sujet present(s) dans l'observation.`
+            : `Aucun terme du sujet ne figure dans l'observation : classee apres les correspondances directes, ` +
+              `puis par fraicheur de publication.`),
       })),
       set_aside: secondary.map((e) => ({
         url: e.url,

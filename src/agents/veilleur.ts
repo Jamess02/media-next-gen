@@ -91,11 +91,35 @@ export class Veilleur extends Agent<VeilleurInput, VeilleurOutput> {
   }
 }
 
-/** Applique la selection du Veilleur au lot d'evenements collectes. */
+/**
+ * Applique la selection du Veilleur au lot d'evenements collectes.
+ *
+ * L'ORDRE DU VEILLEUR EST CONSERVE, et ce n'est pas un detail de forme.
+ *
+ * §5.1 charge le Veilleur d'"identifier la source primaire disponible en
+ * priorite" : sa hierarchie est une production editoriale, pas du bruit. Or
+ * l'etape suivante plafonne a 3 claims structurantes (§3). Rendre les
+ * evenements dans leur ordre de collecte — c'est-a-dire l'ordre arbitraire du
+ * catalogue de sources — reviendrait a laisser ce plafond trancher au hasard,
+ * en ecrasant l'arbitrage qu'on vient justement de demander.
+ *
+ * Effet de bord voulu : une URL retenue qui n'existe pas dans le lot collecte
+ * est ignoree. Un agent ne peut donc pas faire entrer une source en
+ * l'inventant, et les doublons sont ecartes.
+ */
 export function applySelection(
   events: readonly RawEvent[],
   output: VeilleurOutput,
 ): readonly RawEvent[] {
-  const retained = new Set(output.retained.map((r) => r.url));
-  return events.filter((e) => retained.has(e.url));
+  const byUrl = new Map(events.map((e) => [e.url, e]));
+  const ordered: RawEvent[] = [];
+  const seen = new Set<string>();
+
+  for (const { url } of output.retained) {
+    const event = byUrl.get(url);
+    if (event === undefined || seen.has(url)) continue;
+    seen.add(url);
+    ordered.push(event);
+  }
+  return ordered;
 }
