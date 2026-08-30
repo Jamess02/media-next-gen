@@ -1,0 +1,69 @@
+# Integration continue.
+#
+# L'argument central du projet est que les regles editoriales sont appliquees
+# par du code TESTE. Sans execution automatique, cet argument repose sur la
+# discipline de celui qui commite : un changement cassant le clamp du
+# fact-checker (§9.3) pourrait atteindre le depot sans que rien ne l'arrete.
+#
+# Ce workflow n'a besoin d'aucun secret : la suite tourne integralement hors
+# ligne, sans clef d'API ni acces reseau.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Lecture seule : ce workflow ne publie rien et n'ecrit pas dans le depot.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verifier:
+    name: Typage et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Aligne sur le champ `engines` de package.json.
+          node-version: "22"
+          cache: npm
+
+      # `npm ci` et non `npm install` : installe exactement les versions du
+      # lockfile et echoue si package.json et package-lock.json divergent.
+      - name: Installer les dependances
+        run: npm ci
+
+      - name: Verifier le typage
+        run: npm run typecheck
+
+      - name: Executer les tests
+        run: npm test
+
+      # Le protocole est charge a l'execution depuis le markdown (§9.1) : s'il
+      # disparaissait du depot, tous les agents perdraient leur prompt systeme
+      # sans qu'aucun test unitaire ne le signale.
+      - name: Verifier la presence des documents normatifs
+        run: |
+          test -f protocole-editorial-v1.md || { echo "protocole-editorial-v1.md manquant"; exit 1; }
+          test -f changelog-editorial.md || { echo "changelog-editorial.md manquant (§9.6)"; exit 1; }
+
+      # Filet de securite sur les secrets. Le journal d'audit est versionne et
+      # le depot est public : une clef qui y arriverait serait conservee par
+      # l'historique Git meme apres suppression du fichier.
+      - name: Rechercher des secrets commites
+        run: |
+          if git grep -nIE 'sk-ant-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|api_key=[A-Za-z0-9]{16,}' -- . ':!*.yml'; then
+            echo "Secret potentiel detecte dans les fichiers versionnes."
+            exit 1
+          fi
+          echo "Aucun secret detecte."

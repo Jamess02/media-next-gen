@@ -21,13 +21,26 @@ import {
   EVIDENCE_LEVELS,
   SOURCE_TIERS,
 } from "./constants.js";
+import { checkCitableUrl, explainUrlRejection } from "./url.js";
 
 /** ISO-8601. La date fait partie de la preuve (§8), jamais un champ cosmetique. */
 const isoDate = z.iso.datetime({ offset: true });
 
+/**
+ * URL de source. PAS `z.url()` : celui-ci accepte `javascript:`, `data:` et
+ * `file:`, qui deviennent du XSS une fois rendus en lien markdown sur le site
+ * (§5.4). Voir `url.ts` pour le detail.
+ */
+const citableUrl = z.string().superRefine((value, ctx) => {
+  const check = checkCitableUrl(value);
+  if (!check.ok) {
+    ctx.addIssue({ code: "custom", message: explainUrlRejection(check) });
+  }
+});
+
 export const SourceRefSchema = z
   .object({
-    url: z.url(),
+    url: citableUrl,
     tier: z.literal(SOURCE_TIERS),
     date_observed: isoDate,
     date_published: isoDate.nullable(),
@@ -114,7 +127,7 @@ export type Article = z.infer<typeof ArticleSchema>;
 export const RawEventSchema = z
   .object({
     source: z.string().min(1),
-    url: z.url(),
+    url: citableUrl,
     date_observed: isoDate,
     date_published: isoDate.nullable(),
     tier: z.literal(SOURCE_TIERS),

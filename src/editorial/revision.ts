@@ -18,7 +18,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderArticle } from "../agents/editeur.js";
@@ -36,6 +36,61 @@ export class ArticleNotFound extends Error {
     super(`Article "${articleId}" introuvable (${path}).`);
     this.name = "ArticleNotFound";
   }
+}
+
+export class InvalidArticleId extends Error {
+  constructor(articleId: string, detail: string) {
+    super(`Identifiant d'article refuse : ${detail} (recu : "${articleId}").`);
+    this.name = "InvalidArticleId";
+  }
+}
+
+/**
+ * Forme des identifiants produits par le pipeline : `article-<uuid v4>`.
+ * Voir `randomUUID()` dans pipeline.ts.
+ */
+const ARTICLE_ID_PATTERN =
+  /^article-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resout le chemin d'un article en refusant toute sortie du repertoire.
+ *
+ * DEUX BARRIERES, volontairement redondantes :
+ *
+ *  1. l'identifiant doit correspondre exactement au format produit par le
+ *     pipeline — ce qui exclut deja `../`, les separateurs et les caracteres
+ *     de chemin ;
+ *  2. le chemin resolu doit rester sous `outputDir`.
+ *
+ * La seconde ne sert a rien si la premiere est correcte. C'est le principe :
+ * une regex peut avoir un trou, une comparaison de chemin resolu n'en a pas.
+ *
+ * Sans cela, `revise "../../../Windows/System32/x"` ecrivait hors du projet —
+ * et cette fonction ECRIT. Aujourd'hui l'appelant est un humain a son propre
+ * terminal ; des que la revision sera declenchee par une interface, une file
+ * ou un job planifie, ce serait une ecriture arbitraire.
+ */
+function resolveArticlePaths(
+  articleId: string,
+  outputDir: string,
+): { jsonPath: string; markdownPath: string } {
+  if (!ARTICLE_ID_PATTERN.test(articleId)) {
+    throw new InvalidArticleId(
+      articleId,
+      "format attendu article-<uuid>, produit par le pipeline",
+    );
+  }
+
+  const root = resolve(outputDir);
+  const jsonPath = resolve(root, `${articleId}.json`);
+  const markdownPath = resolve(root, `${articleId}.md`);
+
+  for (const candidate of [jsonPath, markdownPath]) {
+    if (candidate !== join(root, basename(candidate))) {
+      throw new InvalidArticleId(articleId, "chemin sortant du repertoire de publication");
+    }
+  }
+  return { jsonPath, markdownPath };
 }
 
 export interface RevisionInput {
@@ -67,8 +122,10 @@ export async function reviseArticle(
 ): Promise<RevisionResult> {
   const outputDir = input.outputDir ?? DEFAULT_OUTPUT_DIR;
   const changelog = input.changelog ?? new EditorialChangelog();
-  const jsonPath = join(outputDir, `${input.articleId}.json`);
-  const markdownPath = join(outputDir, `${input.articleId}.md`);
+  const { jsonPath, markdownPath } = resolveArticlePaths(
+    input.articleId,
+    outputDir,
+  );
 
   let published: unknown;
   try {

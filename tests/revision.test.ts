@@ -12,7 +12,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { PublicationRefused } from "../src/agents/editeur.js";
 import { EditorialChangelog } from "../src/editorial/changelog.js";
-import { ArticleNotFound, reviseArticle } from "../src/editorial/revision.js";
+import {
+  ArticleNotFound,
+  InvalidArticleId,
+  reviseArticle,
+} from "../src/editorial/revision.js";
 import type { Article } from "../src/protocol/schema.js";
 import { article, claim } from "./helpers.js";
 
@@ -20,7 +24,7 @@ let workDir: string;
 let outputDir: string;
 let changelogPath: string;
 
-const ARTICLE_ID = "article-test";
+const ARTICLE_ID = "article-00000000-0000-4000-8000-000000000000";
 
 beforeEach(async () => {
   workDir = await mkdtemp(join(tmpdir(), "revision-test-"));
@@ -159,10 +163,49 @@ describe("§6 — correction d'un article publie", () => {
   it("refuse une correction sur un article inexistant", async () => {
     await expect(
       revise({
-        articleId: "article-fantome",
+        articleId: "article-11111111-1111-4111-8111-111111111111",
         type: "factuelle",
         description: "x",
       }),
     ).rejects.toThrow(ArticleNotFound);
+  });
+});
+
+describe("traversee de chemin", () => {
+  // `reviseArticle` ECRIT des fichiers. Sans validation, un identifiant
+  // construit permettait d'ecrire hors du repertoire de publication.
+  const attacks = [
+    "../../../Windows/System32/x",
+    "..\\..\\.env",
+    "article-../../evade",
+    "/etc/passwd",
+    "C:\\Windows\\win",
+    "article-00000000-0000-4000-8000-000000000000/../../evade",
+  ];
+
+  for (const articleId of attacks) {
+    it(`refuse "${articleId}"`, async () => {
+      await seed();
+      await expect(
+        revise({ articleId, type: "factuelle", description: "x" }),
+      ).rejects.toThrow(InvalidArticleId);
+    });
+  }
+
+  it("refuse un identifiant de forme libre", async () => {
+    await seed();
+    await expect(
+      revise({ articleId: "mon-article", type: "factuelle", description: "x" }),
+    ).rejects.toThrow(InvalidArticleId);
+  });
+
+  it("accepte l'identifiant produit par le pipeline", async () => {
+    await seed();
+    const result = await revise({
+      articleId: ARTICLE_ID,
+      type: "factuelle",
+      description: "Identifiant valide.",
+    });
+    expect(result.article.id).toBe(ARTICLE_ID);
   });
 });

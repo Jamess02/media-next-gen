@@ -29,6 +29,11 @@ import {
 import { ArticleSchema, type Article, type Claim } from "../protocol/schema.js";
 import { runEditorialGate, type Violation } from "../protocol/rules.js";
 import { EditorialChangelog } from "../editorial/changelog.js";
+import {
+  escapeLinkTarget,
+  escapeSourceText,
+  neutralizeAuthoredMarkdown,
+} from "../editorial/markdown.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_OUTPUT_DIR = join(HERE, "..", "..", "output");
@@ -111,10 +116,13 @@ export class Editeur {
 
 /** §2 / EP-002 — le niveau de preuve est affiche, jamais implicite. */
 function renderClaim(claim: Claim, index: number): string {
+  // Le schema garantit deja un schema http(s) (protocol/url.ts). L'encodage
+  // ici empeche seulement de casser la syntaxe du lien.
   const sources = claim.sources
     .map(
       (s) =>
-        `  - [${s.url}](${s.url}) — tier ${s.tier} (${SOURCE_TIER_LABELS[s.tier]}) · ` +
+        `  - [${escapeSourceText(s.url)}](${escapeLinkTarget(s.url)}) — ` +
+        `tier ${s.tier} (${SOURCE_TIER_LABELS[s.tier]}) · ` +
         `observe le ${s.date_observed}` +
         (s.date_published === null
           ? " · date de publication inconnue"
@@ -123,9 +131,10 @@ function renderClaim(claim: Claim, index: number): string {
     .join("\n");
 
   return [
-    `### Claim ${index + 1} — \`${claim.id}\``,
+    `### Claim ${index + 1} — \`${escapeSourceText(claim.id)}\``,
     "",
-    `> ${claim.text}`,
+    // Texte issu d'une source externe : aucune mise en forme n'y est legitime.
+    `> ${escapeSourceText(claim.text)}`,
     "",
     `- **Type** : \`${claim.type}\``,
     `- **Niveau de preuve** : ${claim.evidence_level} — ${EVIDENCE_LEVEL_LABELS[claim.evidence_level]}`,
@@ -136,7 +145,7 @@ function renderClaim(claim: Claim, index: number): string {
 
 export function renderArticle(article: Article): string {
   const parts: string[] = [
-    `# ${article.title}`,
+    `# ${escapeSourceText(article.title)}`,
     "",
     `*Publie le ${article.published_at}` +
       (article.revised_at === null
@@ -152,12 +161,25 @@ export function renderArticle(article: Article): string {
   if (article.editorial_notes.uncertainty_flags.length > 0) {
     parts.push(
       "> **Incertitudes declarees**",
-      ...article.editorial_notes.uncertainty_flags.map((f) => `> - ${f}`),
+      ...article.editorial_notes.uncertainty_flags.map(
+        (f) => `> - ${escapeSourceText(f)}`,
+      ),
       "",
     );
   }
 
-  parts.push("---", "", article.body, "", "---", "", "## Preuves", "");
+  // Le corps est redige par le Redacteur : sa mise en forme est legitime, on
+  // n'y retire donc que le HTML brut et les cibles de lien non autorisees.
+  parts.push(
+    "---",
+    "",
+    neutralizeAuthoredMarkdown(article.body),
+    "",
+    "---",
+    "",
+    "## Preuves",
+    "",
+  );
   parts.push(article.claims.map(renderClaim).join("\n\n"));
 
   if (article.editorial_notes.excluded_claims.length > 0) {
@@ -169,7 +191,9 @@ export function renderArticle(article: Article): string {
       "elles ne figurent pas dans l'article. Elles sont listees pour que le",
       "lecteur sache ce qui n'a pas ete retenu, et pourquoi.",
       "",
-      ...article.editorial_notes.excluded_claims.map((c) => `- ${c}`),
+      ...article.editorial_notes.excluded_claims.map(
+        (c) => `- ${escapeSourceText(c)}`,
+      ),
     );
   }
 
@@ -179,7 +203,7 @@ export function renderArticle(article: Article): string {
       "## Historique des corrections",
       "",
       ...article.changelog.map(
-        (c) => `- **${c.date}** · _${c.type}_ — ${c.description}`,
+        (c) => `- **${c.date}** · _${c.type}_ — ${escapeSourceText(c.description)}`,
       ),
     );
   }

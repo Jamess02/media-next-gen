@@ -65,7 +65,9 @@ export function claim(overrides: Partial<Claim> = {}): Claim {
 export function article(overrides: Partial<Article> = {}): Article {
   const claims = overrides.claims ?? [claim()];
   return {
-    id: "article-test",
+    // Format reel produit par le pipeline : `article-<uuid>`. La revision le
+    // valide strictement (traversee de chemin), donc les tests l'utilisent.
+    id: "article-00000000-0000-4000-8000-000000000000",
     title: "Titre de test",
     published_at: "2026-08-28T10:00:00Z",
     revised_at: null,
