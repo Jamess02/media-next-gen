@@ -15,7 +15,18 @@ import type { z } from "zod";
 export interface LlmRequest<T> {
   /** Agent appelant. Reporte tel quel dans le journal d'audit (EP-002). */
   agent: string;
-  /** Prompt systeme : le protocole integral + les instructions de role (§9.1). */
+  /**
+   * Protocole integral (§9.1). Fourni SEPAREMENT des instructions de role
+   * parce que c'est le prefixe stable partage par les six agents : c'est lui,
+   * et lui seul, qui doit porter le point de cache. Voir anthropic-client.ts.
+   */
+  protocol: string;
+  /** Instructions propres au role — la partie qui varie d'un agent a l'autre. */
+  roleInstructions: string;
+  /**
+   * Concatenation des deux, pour les fournisseurs n'acceptant qu'un seul
+   * message systeme (API compatibles OpenAI).
+   */
   system: string;
   user: string;
   /** Schema de la reponse attendue. Contraint le modele, puis le valide. */

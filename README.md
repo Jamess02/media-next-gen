@@ -15,8 +15,12 @@ npm test                                                    # 85 tests
 # Scénario simulé, hors ligne, avec pièges posés pour exercer le gate
 npm run dev -- "resserrement monétaire et données commerciales"
 
-# Chaîne complète sur de VRAIES données (API Banque mondiale, sans clé)
+# Chaîne complète sur de VRAIES données (5 sources, sans clé)
 npm run dev -- --real-sources "inflation en zone euro"
+
+# Avec un vrai modèle — palier gratuit, clé sans carte bancaire
+npm run dev -- --providers                        # état de chaque fournisseur
+npm run dev -- --provider=groq --real-sources "politique monétaire"
 
 # Corriger un article publié (§6)
 npm run dev -- revise <article-id> --type=factuelle "ce qui change"
@@ -72,7 +76,9 @@ src/
   sources/      Accès externe : registre de tiers, passerelle, catalogue
                 http.ts = fetch mutualisé (timeout, statut, parsing)
                 worldbank / imf / eurostat / usgs / fred = adaptateurs RÉELS
-  llm/          Frontière modèle : interface + client Anthropic + mock
+  llm/          Frontière modèle : interface, client Anthropic,
+                client compatible OpenAI (Groq/Gemini/Mistral/Ollama…), mock
+                providers.ts = seul module lisant process.env
   audit/        §9.4 — journal JSONL + archives adressées par contenu
   editorial/    §6 — changelog public + flux de correction
   fixtures/     Réponses simulées : scriptées (Zembla) et adaptatives
@@ -105,12 +111,29 @@ le gate au lieu de l'appliquer.
 
 ## Modes d'exécution
 
-| | défaut | `--real-sources` | `--mode=live` |
+| | défaut | `--real-sources` | `--provider=<llm>` |
 |---|---|---|---|
-| LLM | Réponses scriptées (Zembla) | Réponses **adaptatives** dérivées des données reçues | API Claude (`claude-opus-5`) |
-| Sources | Adaptateurs simulés | **5 sources réelles** (voir ci-dessous) | idem |
-| Coût | nul | nul | facturé |
+| LLM | Réponses scriptées (Zembla) | Réponses **adaptatives** dérivées des données reçues | Modèle réel |
+| Sources | Adaptateurs simulés | **5 sources réelles** (voir ci-dessous) | combinable |
+| Coût | nul | nul | gratuit ou facturé selon le fournisseur |
 | Usage | exercer le gate (pièges posés) | démo bout-en-bout sur données réelles | production |
+
+### Fournisseurs LLM
+
+`npm run dev -- --providers` affiche l'état de chacun.
+
+| `--provider=` | Coût | Clé |
+|---|---|---|
+| `mock` *(défaut)* | nul | — |
+| `groq`, `gemini`, `mistral`, `openrouter` | **palier gratuit** | oui, sans carte bancaire |
+| `ollama`, `lmstudio` | gratuit, local | — |
+| `anthropic` | facturé | oui |
+
+Les quatre fournisseurs gratuits et les deux serveurs locaux partagent la même API compatible OpenAI, donc [le même client](src/llm/openai-compatible-client.ts). Ajouter un fournisseur = trois champs dans [providers.ts](src/llm/providers.ts).
+
+**Ce qu'un fournisseur gratuit valide — et ce qu'il ne valide pas.** Il exerce la mécanique du pipeline (prompts, schémas, gate, journalisation), pas la qualité éditoriale. Et il **n'exerce pas** [anthropic-client.ts](src/llm/anthropic-client.ts), qui reste le seul fichier du projet jamais exécuté contre son API réelle. Le CLI l'affiche à chaque exécution, pour que personne ne prenne un article produit par un 8B local pour une validation du pipeline complet.
+
+**Note de facturation :** un abonnement Claude Pro/Max couvre claude.ai et Claude Code, **pas** l'API développeur, qui a ses propres crédits. Ordre de grandeur mesuré sur ce pipeline : ~0,28 $ par article sur Opus 5, ~0,06 $ sur Haiku 4.5.
 
 ### Sources branchées
 

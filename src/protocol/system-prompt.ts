@@ -46,13 +46,26 @@ export interface SystemPromptOptions {
   roleInstructions: string;
 }
 
+export interface SystemPromptParts {
+  /**
+   * Le protocole seul. Prefixe STABLE, identique pour les six agents : c'est
+   * lui qui porte le point de cache cote Anthropic. Toute variation ici
+   * invaliderait le cache de tous les agents a la fois.
+   */
+  protocol: string;
+  /** Partie volatile : role, instructions propres, contraintes de sortie. */
+  roleInstructions: string;
+  /** Les deux concatenes, pour les APIs a message systeme unique. */
+  system: string;
+}
+
 export function buildSystemPrompt({
   role,
   roleInstructions,
-}: SystemPromptOptions): string {
-  return [
-    loadProtocol(),
-    "",
+}: SystemPromptOptions): SystemPromptParts {
+  const protocol = loadProtocol();
+
+  const rolePart = [
     "---",
     "",
     `# Ton role dans la chaine : \`${role}\` (${ROLE_CLAUSE[role]})`,
@@ -68,4 +81,10 @@ export function buildSystemPrompt({
     "  le champ d'erreur prevu par ton schema plutot que de produire un resultat",
     "  non conforme.",
   ].join("\n");
+
+  return {
+    protocol,
+    roleInstructions: rolePart,
+    system: `${protocol}\n\n${rolePart}`,
+  };
 }

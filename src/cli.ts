@@ -17,9 +17,13 @@ import { AuditLog } from "./audit/audit-log.js";
 import { ArticleNotFound, reviseArticle } from "./editorial/revision.js";
 import { ADAPTIVE_RESPONDERS } from "./fixtures/adaptive-responders.js";
 import { MOCK_RESPONDERS } from "./fixtures/mock-scenario.js";
-import { AnthropicLlmClient } from "./llm/anthropic-client.js";
-import { MockLlmClient } from "./llm/mock-client.js";
-import type { LlmClient } from "./llm/types.js";
+import {
+  ProviderUnavailable,
+  describeProviders,
+  resolveProvider,
+  type ProviderName,
+  type ResolvedProvider,
+} from "./llm/providers.js";
 import { CHANGELOG_TYPES, type ChangelogType } from "./protocol/constants.js";
 import { EditorialPipeline, type PipelineStage } from "./pipeline.js";
 import { buildSourceCatalogue } from "./sources/catalogue.js";
@@ -40,7 +44,7 @@ try {
 interface PublishCommand {
   kind: "publish";
   topic: string;
-  mode: "mock" | "live";
+  provider: ProviderName;
   realSources: boolean;
 }
 
@@ -51,19 +55,27 @@ interface ReviseCommand {
   description: string;
 }
 
-type Command = PublishCommand | ReviseCommand | { kind: "error"; message: string };
+type Command =
+  | PublishCommand
+  | ReviseCommand
+  | { kind: "list-providers" }
+  | { kind: "error"; message: string };
 
 function parseArgs(argv: readonly string[]): Command {
   const positional: string[] = [];
-  let mode: "mock" | "live" =
-    process.env["MEDIA_MODE"] === "live" ? "live" : "mock";
+  let provider = (process.env["MEDIA_PROVIDER"] ?? "mock") as ProviderName;
   let realSources = false;
   let type: string | undefined;
 
   for (const arg of argv) {
-    if (arg === "--mode=live") mode = "live";
-    else if (arg === "--mode=mock") mode = "mock";
+    if (arg.startsWith("--provider=")) {
+      provider = arg.slice("--provider=".length) as ProviderName;
+    }
+    // `--mode=live` conserve pour compatibilite : equivaut a --provider=anthropic.
+    else if (arg === "--mode=live") provider = "anthropic";
+    else if (arg === "--mode=mock") provider = "mock";
     else if (arg === "--real-sources") realSources = true;
+    else if (arg === "--providers") return { kind: "list-providers" };
     else if (arg.startsWith("--type=")) type = arg.slice("--type=".length);
     else positional.push(arg);
   }
@@ -94,7 +106,7 @@ function parseArgs(argv: readonly string[]): Command {
   return {
     kind: "publish",
     topic: positional.join(" ").trim() || "politique monetaire et flux commerciaux",
-    mode,
+    provider,
     realSources,
   };
 }
@@ -110,34 +122,32 @@ function isChangelogType(value: string): value is ChangelogType {
 async function publish(command: PublishCommand): Promise<void> {
   const audit = new AuditLog();
 
-  let llm: LlmClient;
-  if (command.mode === "live") {
-    if (!process.env["ANTHROPIC_API_KEY"]) {
-      console.error(
-        "Mode live demande mais ANTHROPIC_API_KEY est absente.\n" +
-          "Renseigner la clef dans .env, ou retirer --mode=live pour tourner en simulation.",
-      );
+  // Deux jeux de reponses simulees, pour deux usages distincts :
+  //  - scripte (Zembla) : pose des pieges precis pour exercer le gate ;
+  //  - adaptatif : derive ses sorties des donnees reellement collectees.
+  // Utiliser le scenario Zembla sur de vraies sources produirait des claims
+  // fictives citant des donnees reelles — ce que le protocole interdit.
+  const responders = command.realSources ? ADAPTIVE_RESPONDERS : MOCK_RESPONDERS;
+
+  let resolved: ResolvedProvider;
+  try {
+    resolved = resolveProvider({
+      provider: command.provider,
+      audit,
+      responders,
+    });
+  } catch (error) {
+    if (error instanceof ProviderUnavailable) {
+      console.error(error.message);
+      console.error("");
+      console.error(describeProviders());
       process.exitCode = 1;
       return;
     }
-    llm = new AnthropicLlmClient({
-      audit,
-      ...(process.env["MEDIA_MODEL"] === undefined
-        ? {}
-        : { model: process.env["MEDIA_MODEL"] }),
-    });
-  } else {
-    // Deux jeux de reponses simulees, pour deux usages distincts :
-    //  - scripte (Zembla) : pose des pieges precis pour exercer le gate ;
-    //  - adaptatif : derive ses sorties des donnees reellement collectees.
-    // Utiliser le scenario Zembla sur de vraies sources produirait des claims
-    // fictives citant des donnees reelles — exactement ce que le protocole
-    // interdit.
-    llm = new MockLlmClient({
-      audit,
-      responders: command.realSources ? ADAPTIVE_RESPONDERS : MOCK_RESPONDERS,
-    });
+    throw error;
   }
+
+  const llm = resolved.client;
 
   let adapters: readonly SourceAdapter[];
   if (command.realSources) {
@@ -157,8 +167,12 @@ async function publish(command: PublishCommand): Promise<void> {
   }
 
   console.log(`Sujet   : ${command.topic}`);
-  console.log(`Mode    : ${command.mode} (modele : ${llm.modelId})`);
+  console.log(`Modele  : ${llm.modelId}`);
   console.log(`Sources : ${command.realSources ? "reelles" : "simulees"}`);
+  if (resolved.notices.length > 0) {
+    console.log("");
+    for (const notice of resolved.notices) console.log(`! ${notice}`);
+  }
   console.log("");
 
   const pipeline = new EditorialPipeline({
@@ -240,6 +254,9 @@ async function main(): Promise<void> {
     case "error":
       console.error(command.message);
       process.exitCode = 1;
+      return;
+    case "list-providers":
+      console.log(describeProviders());
       return;
     case "revise":
       return revise(command);

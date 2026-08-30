@@ -41,12 +41,19 @@ export abstract class Agent<Input, Output> {
   protected abstract buildUserMessage(input: Input): string;
 
   async run(input: Input): Promise<Output> {
+    // Les trois formes du prompt systeme sont fournies au client, a lui de
+    // choisir : Anthropic exploite la separation pour placer le point de cache
+    // sur le protocole, les APIs compatibles OpenAI prennent la concatenation.
+    const prompt = buildSystemPrompt({
+      role: this.role,
+      roleInstructions: this.instructions,
+    });
+
     return this.ctx.llm.structured({
       agent: this.role,
-      system: buildSystemPrompt({
-        role: this.role,
-        roleInstructions: this.instructions,
-      }),
+      protocol: prompt.protocol,
+      roleInstructions: prompt.roleInstructions,
+      system: prompt.system,
       user: this.buildUserMessage(input),
       schema: this.outputSchema,
       schemaName: this.schemaName,

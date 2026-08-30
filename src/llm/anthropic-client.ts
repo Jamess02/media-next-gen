@@ -52,13 +52,22 @@ export class AnthropicLlmClient implements LlmClient {
       const response = await this.client.messages.parse({
         model: this.modelId,
         max_tokens: this.maxTokens,
+        // DEUX blocs, et c'est ce qui rend le cache utile.
+        //
+        // Le cache porte sur un PREFIXE. En mettant protocole et instructions
+        // de role dans un seul bloc, chaque agent produisait une clef de cache
+        // differente : cinq ecritures (facturees 1,25x), zero lecture.
+        //
+        // Separes, les ~3000 tokens du protocole forment un prefixe identique
+        // pour les six agents, donc une seule entree de cache partagee. Les
+        // instructions de role, volatiles, viennent apres le point de coupe.
         system: [
           {
             type: "text",
-            text: request.system,
-            // Le protocole est le prefixe stable partage par tous les agents.
+            text: request.protocol,
             cache_control: { type: "ephemeral" },
           },
+          { type: "text", text: request.roleInstructions },
         ],
         messages: [{ role: "user", content: request.user }],
         output_config: {
