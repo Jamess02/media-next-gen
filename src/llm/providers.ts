@@ -106,6 +106,22 @@ export class ProviderUnavailable extends Error {
   }
 }
 
+/**
+ * Lit une variable d'environnement en traitant la chaine VIDE comme absente.
+ *
+ * `.env` declare volontairement des variables vides pour documenter leur
+ * existence (`MEDIA_MODEL=`). Sans cette normalisation, `env[x] ?? defaut`
+ * rendrait la chaine vide — `??` ne se declenche que sur null/undefined — et
+ * le pipeline demanderait un modele sans nom.
+ */
+function readEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string | undefined {
+  const value = env[name];
+  return value === undefined || value.trim().length === 0 ? undefined : value;
+}
+
 export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
   const env = input.env ?? process.env;
   const notices: string[] = [];
@@ -117,8 +133,10 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
     };
   }
 
+  const overrideModel = readEnv(env, "MEDIA_MODEL");
+
   if (input.provider === "anthropic") {
-    if (!env["ANTHROPIC_API_KEY"]) {
+    if (readEnv(env, "ANTHROPIC_API_KEY") === undefined) {
       throw new ProviderUnavailable(
         "ANTHROPIC_API_KEY absente. La renseigner dans .env, ou choisir un " +
           "fournisseur gratuit : --provider=groq | gemini | mistral | openrouter | ollama.",
@@ -127,7 +145,7 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
     return {
       client: new AnthropicLlmClient({
         audit: input.audit,
-        ...(env["MEDIA_MODEL"] === undefined ? {} : { model: env["MEDIA_MODEL"] }),
+        ...(overrideModel === undefined ? {} : { model: overrideModel }),
       }),
       notices,
     };
@@ -143,8 +161,8 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
 
   let apiKey: string | undefined;
   if (spec.envKey !== null) {
-    const value = env[spec.envKey];
-    if (value === undefined || value.trim().length === 0) {
+    const value = readEnv(env, spec.envKey);
+    if (value === undefined) {
       throw new ProviderUnavailable(
         `${spec.envKey} absente pour le fournisseur "${input.provider}".\n` +
           `  Clef gratuite : ${spec.signup}\n` +
@@ -165,7 +183,7 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
     client: new OpenAiCompatibleLlmClient({
       providerName: input.provider,
       baseUrl: spec.baseUrl,
-      model: env["MEDIA_MODEL"] ?? spec.defaultModel,
+      model: overrideModel ?? spec.defaultModel,
       audit: input.audit,
       ...(apiKey === undefined ? {} : { apiKey }),
     }),
@@ -179,7 +197,7 @@ export function describeProviders(env: NodeJS.ProcessEnv = process.env): string 
     const ready =
       spec.envKey === null
         ? "serveur local"
-        : env[spec.envKey]
+        : readEnv(env, spec.envKey) !== undefined
           ? "clef presente"
           : `${spec.envKey} absente — ${spec.signup}`;
     return `  ${name.padEnd(11)} ${spec.defaultModel.padEnd(38)} ${ready}`;

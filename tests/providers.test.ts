@@ -52,6 +52,25 @@ describe("resolution", () => {
     expect(client.modelId).toBe("groq/autre-modele");
   });
 
+  it("traite un MEDIA_MODEL vide comme absent", () => {
+    // `.env` declare volontairement des variables vides pour les documenter.
+    // Sans normalisation, `?? defaut` rendrait la chaine vide et le pipeline
+    // demanderait un modele sans nom.
+    const { client } = resolve("groq", { GROQ_API_KEY: "k", MEDIA_MODEL: "" });
+    expect(client.modelId).toBe("groq/llama-3.3-70b-versatile");
+  });
+
+  it("traite un MEDIA_MODEL fait d'espaces comme absent", () => {
+    const { client } = resolve("ollama", { MEDIA_MODEL: "   " });
+    expect(client.modelId).toBe("ollama/qwen2.5:14b");
+  });
+
+  it("traite une ANTHROPIC_API_KEY vide comme absente", () => {
+    expect(() => resolve("anthropic", { ANTHROPIC_API_KEY: "" })).toThrow(
+      ProviderUnavailable,
+    );
+  });
+
   it("n'exige aucune clef pour un serveur local", () => {
     const { client } = resolve("ollama", {});
     expect(client.modelId).toMatch(/^ollama\//);
