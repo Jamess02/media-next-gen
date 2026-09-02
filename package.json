@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
+    "site": "tsx src/cli.ts site",
+    "studio": "tsx src/cli.ts studio",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

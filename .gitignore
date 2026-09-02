@@ -22,3 +22,12 @@ audit/raw/
 # `changelog-editorial.md` n'est PAS ignore : le §9.6 exige qu'il soit
 # versionne dans le repo.
 output/
+
+# Site statique genere par `npm run site`, reconstruit entierement a chaque
+# fois depuis `output/`.
+#
+# Consequence a trancher avant tout deploiement : une CI qui genererait le site
+# depuis un depot ou `output/` est ignore publierait un site VIDE. Mettre le
+# site en ligne suppose donc de decider quels articles sont versionnes — c'est
+# une decision editoriale, pas technique.
+public/

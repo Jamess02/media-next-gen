@@ -12,8 +12,12 @@
  * d'environnement trainait ne serait pas un comportement acceptable.
  */
 
+import { join } from "node:path";
+
 import { PublicationRefused } from "./agents/editeur.js";
 import { AuditLog } from "./audit/audit-log.js";
+import { buildSite } from "./site/build.js";
+import { startStudio } from "./studio/server.js";
 import { ArticleNotFound, reviseArticle } from "./editorial/revision.js";
 import { ADAPTIVE_RESPONDERS } from "./fixtures/adaptive-responders.js";
 import { MOCK_RESPONDERS } from "./fixtures/mock-scenario.js";
@@ -59,6 +63,8 @@ type Command =
   | PublishCommand
   | ReviseCommand
   | { kind: "list-providers" }
+  | { kind: "build-site" }
+  | { kind: "studio"; port: number }
   | { kind: "error"; message: string };
 
 function parseArgs(argv: readonly string[]): Command {
@@ -78,6 +84,12 @@ function parseArgs(argv: readonly string[]): Command {
     else if (arg === "--providers") return { kind: "list-providers" };
     else if (arg.startsWith("--type=")) type = arg.slice("--type=".length);
     else positional.push(arg);
+  }
+
+  if (positional[0] === "site") return { kind: "build-site" };
+  if (positional[0] === "studio") {
+    const port = Number(positional[1]);
+    return { kind: "studio", port: Number.isFinite(port) && port > 0 ? port : 5173 };
   }
 
   if (positional[0] === "revise") {
@@ -243,6 +255,32 @@ async function revise(command: ReviseCommand): Promise<void> {
   console.log("L'entree est consignee dans changelog-editorial.md (§6, append-only).");
 }
 
+async function buildSiteCommand(): Promise<void> {
+  const r = await buildSite();
+  console.log(`SITE GENERE — ${r.published} article(s), ${r.pages.length} page(s)`);
+  console.log(`  ${r.siteDir}`);
+
+  // Un fichier ecarte ne doit pas disparaitre en silence : c'est le signe
+  // d'un article modifie a la main ou produit par une version anterieure.
+  if (r.rejected.length > 0) {
+    console.log("");
+    console.log("Fichiers ecartes (non conformes au §7) :");
+    for (const rej of r.rejected) console.log(`  - ${rej.file} : ${rej.reason}`);
+  }
+  console.log("");
+  console.log("Ouvrir : " + join(r.siteDir, "index.html"));
+}
+
+async function studioCommand(port: number): Promise<void> {
+  const url = await startStudio({ port });
+  console.log(`STUDIO — interface de pilotage sur ${url}`);
+  console.log("");
+  console.log("Ecoute sur la boucle locale uniquement : ce serveur declenche le");
+  console.log("pipeline, donc des appels potentiellement factures.");
+  console.log("");
+  console.log("Ctrl+C pour arreter.");
+}
+
 /* -------------------------------------------------------------------------
  * Entree
  * ---------------------------------------------------------------------- */
@@ -258,6 +296,10 @@ async function main(): Promise<void> {
     case "list-providers":
       console.log(describeProviders());
       return;
+    case "build-site":
+      return buildSiteCommand();
+    case "studio":
+      return studioCommand(command.port);
     case "revise":
       return revise(command);
     case "publish":

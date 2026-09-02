@@ -24,6 +24,10 @@ npm run dev -- --provider=groq --real-sources "politique monétaire"
 
 # Corriger un article publié (§6)
 npm run dev -- revise <article-id> --type=factuelle "ce qui change"
+
+# Site statique et interface de pilotage
+npm run site                                      # génère public/
+npm run studio                                    # http://127.0.0.1:5173
 ```
 
 Sans aucune clé API, le pipeline tourne de bout en bout — y compris sur de
@@ -90,6 +94,8 @@ src/
   audit/        §9.4 — journal JSONL + archives adressées par contenu
   editorial/    §6 — changelog public + flux de correction
   fixtures/     Réponses simulées : scriptées (Zembla) et adaptatives
+  site/         Générateur du site statique (markdown maison, sans HTML)
+  studio/       Interface de pilotage locale (node:http + SSE)
   pipeline.ts   §5 — orchestration (contient zéro règle éditoriale)
 ```
 
@@ -209,6 +215,18 @@ soumis aux CGU des fournisseurs) et `output/` (artefacts de simulation
 régénérés à chaque exécution).
 
 ---
+
+## Interfaces
+
+**Site statique** — `npm run site` génère `public/` depuis les fichiers `output/*.json`, c'est-à-dire depuis le **contrat §7**, pas depuis le markdown publié. Claims, niveaux, tiers et dates sont des données typées : les afficher depuis le contrat supprime toute divergence possible entre ce que l'article affirme et ce que le pipeline a validé.
+
+Parti pris visuel inspiré de [l0g.fr](https://l0g.fr) : noir sur blanc, dense, entrées numérotées, marqueurs de section `//`. Là où l0g signale un risque de marché, on signale ce que le protocole rend obligatoire — niveau de preuve (§2), type de claim (§3), tier de source (§4). Chaque `[[claim-1]]` du corps devient un **lien vers sa preuve** : la promesse du §0 rendue cliquable.
+
+Le rendu markdown est [maison](src/site/markdown.ts), et c'est un choix de sécurité : `marked` et `markdown-it` laissent passer le HTML brut par défaut, ce qui rouvrirait la faille fermée dans `editorial/markdown.ts`. Ici l'échappement précède toute mise en forme — aucun chemin ne permet à du HTML source d'atteindre la sortie. Un article dont le JSON ne valide plus contre le §7 n'est pas publié, et le motif est affiché.
+
+**Studio** — `npm run studio` ouvre une interface de pilotage locale : lancer le pipeline, suivre les étapes en direct (SSE), voir les arrêts du gate avec leurs motifs, consulter le journal d'audit. Elle **n'écoute que sur `127.0.0.1`** : ce serveur déclenche des appels potentiellement facturés. Aucun contenu dynamique n'est inséré via `innerHTML` — il vient du pipeline, donc indirectement de sources externes.
+
+**Avant tout déploiement**, une décision à trancher : `output/` est exclu du versionnement, donc une CI qui générerait le site publierait un site vide. Mettre le site en ligne suppose de décider quels articles sont versionnés — c'est éditorial, pas technique.
 
 ## Sécurité
 
