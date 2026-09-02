@@ -14,6 +14,7 @@
 import { eurostatAdapter } from "./eurostat.js";
 import { fredAdapter } from "./fred.js";
 import { imfAdapter } from "./imf.js";
+import { l0gAdapter } from "./l0g.js";
 import type { SourceAdapter } from "./types.js";
 import { usgsAdapter } from "./usgs.js";
 import { worldBankAdapter } from "./worldbank.js";
@@ -54,6 +55,11 @@ export function buildSourceCatalogue(
       label: "IPCH, taux de variation annuel",
     }),
     usgsAdapter({ minMagnitude: 6, limit: 5 }),
+
+    // --- Tier 2, sans clef ------------------------------------------------
+    // Analyses secondaires. EP-001 leur reste applicable : la passerelle
+    // signale celles qu'une source primaire du meme lot eclipse.
+    l0gAdapter({ limit: 3 }),
   ];
 
   const skipped: SkippedSource[] = [];

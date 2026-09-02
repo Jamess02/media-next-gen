@@ -178,6 +178,9 @@ Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sort
 | [Eurostat](src/sources/eurostat.ts) | 1 | non | Index JSON-stat à plat : l'adaptateur **refuse de deviner** si une dimension n'est pas figée |
 | [USGS](src/sources/usgs.ts) | 1 | non | Solution `automatic` signalée comme préliminaire et révisable (§5.2) |
 | [FRED](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Valeurs `"."` jamais converties en 0 ; clé dans l'URL, caviardée au journal |
+| [l0g.fr](src/sources/l0g.ts) | 2 | non | Instantané périmé signalé selon le seuil publié par la source ; **attribution CC BY portée dans le texte de la claim** |
+
+**Sur l0g.fr** — aucune clé, aucun compte, donc aucun mécanisme de facturation possible ; CC BY 4.0 est une licence, pas un abonnement. Son manifeste `agents.json` publie des usages interdits qui recoupent notre protocole presque mot pour mot : *« transformer une inférence ou un scénario en fait observé »* (§3/§8), *« présenter les scores 0-100 comme probabilités comparables »* (EP-006), *« renormaliser un score quand des familles de sources manquent »* (EP-005). Trois des quatre sont déjà appliqués par nos règles déterministes — par construction, pas par promesse. C'est aussi pourquoi l'adaptateur **n'ingère pas leurs scores de risque** : les publier exigerait de porter leur méthodologie et leurs limites, ce que le format d'observation ne transporte pas.
 
 Sans clé FRED, la source est **déclarée absente** plutôt que silencieusement omise (EP-003). Trois autres sources du §4 sont documentées comme non branchées, avec leur motif — dont GDELT, dont le certificat TLS a expiré : contourner la vérification TLS exposerait le pipeline à une interception.
 
