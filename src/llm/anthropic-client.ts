@@ -26,6 +26,17 @@ export interface AnthropicLlmClientOptions {
   model?: string;
   apiKey?: string;
   maxTokens?: number;
+  /**
+   * Surcharge de l'URL de l'API.
+   *
+   * Sert a diriger le SDK vers un serveur controle, afin d'exercer ce client
+   * sans clef ni facturation. Ce que cela valide : la forme de la requete
+   * REELLEMENT emise par le SDK, et le traitement des reponses.
+   *
+   * Ce que cela ne valide PAS : que l'API Anthropic accepte cette requete.
+   * Un serveur qu'on ecrit soi-meme accepte ce qu'on lui envoie.
+   */
+  baseUrl?: string;
 }
 
 export class AnthropicLlmClient implements LlmClient {
@@ -40,9 +51,10 @@ export class AnthropicLlmClient implements LlmClient {
     this.audit = options.audit;
     // Sans apiKey explicite, le SDK resout ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN
     // ou un profil `ant auth login`. On ne code jamais une clef en dur.
-    this.client = new Anthropic(
-      options.apiKey === undefined ? {} : { apiKey: options.apiKey },
-    );
+    this.client = new Anthropic({
+      ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+      ...(options.baseUrl === undefined ? {} : { baseURL: options.baseUrl }),
+    });
   }
 
   async structured<T>(request: LlmRequest<T>): Promise<T> {
@@ -118,6 +130,8 @@ export class AnthropicLlmClient implements LlmClient {
     } catch (error) {
       if (error instanceof LlmContractError) throw error;
 
+      const described = describeApiError(error);
+
       // L'echec est archive lui aussi : une correction ulterieure (§6) doit
       // pouvoir remonter a ce qui s'est reellement passe.
       await this.audit.record({
@@ -126,8 +140,23 @@ export class AnthropicLlmClient implements LlmClient {
         target: `${this.modelId}#${request.schemaName}`,
         dateObserved,
         raw: { user: request.user },
-        error: describeApiError(error),
+        error: described,
       });
+
+      // Une reponse non conforme au schema est un probleme de CONTRAT, pas de
+      // transport. Le SDK la signale par un `AnthropicError` qui n'est pas une
+      // `APIError` — distinction typee, pas une comparaison de message.
+      //
+      // Sans cette conversion, une sortie de modele malformee remontait en
+      // trace brute jusqu'a l'utilisateur, alors que le reste du pipeline
+      // traite ce cas proprement.
+      if (
+        error instanceof Anthropic.AnthropicError &&
+        !(error instanceof Anthropic.APIError)
+      ) {
+        throw new LlmContractError(request.agent, request.schemaName, described);
+      }
+
       throw error;
     }
   }
@@ -149,6 +178,11 @@ function describeApiError(error: unknown): string {
   }
   if (error instanceof Anthropic.APIError) {
     return `erreur API ${error.status} : ${error.message}`;
+  }
+  // `AnthropicError` sans statut HTTP : probleme cote client, typiquement une
+  // reponse que le SDK n'a pas pu valider contre le schema demande.
+  if (error instanceof Anthropic.AnthropicError) {
+    return `reponse non conforme au schema demande — ${error.message}`;
   }
   return error instanceof Error ? error.message : String(error);
 }

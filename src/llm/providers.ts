@@ -160,10 +160,20 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
           "fournisseur gratuit : --provider=groq | gemini | mistral | openrouter | ollama.",
       );
     }
+    // Surcharge d'URL : passerelle d'entreprise, proxy, ou serveur controle
+    // pour exercer ce client sans facturation.
+    const baseUrl = readEnv(env, "ANTHROPIC_BASE_URL");
+    if (baseUrl !== undefined) {
+      notices.push(
+        `API Anthropic redirigee vers ${baseUrl} — ce n'est PAS l'API officielle.`,
+      );
+    }
+
     return {
       client: new AnthropicLlmClient({
         audit: input.audit,
         ...(overrideModel === undefined ? {} : { model: overrideModel }),
+        ...(baseUrl === undefined ? {} : { baseUrl }),
       }),
       notices,
     };
