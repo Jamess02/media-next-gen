@@ -1,0 +1,78 @@
+# Deploiement du site public sur GitHub Pages.
+#
+# Le site est construit depuis `articles/`, qui ne contient que des textes
+# RELUS PAR UN HUMAIN, chacun accompagne de son attestation. La generation
+# echoue si une attestation manque ou ne correspond plus au contenu : un
+# article modifie apres relecture ne peut donc pas etre deploye.
+#
+# Ce workflow ne publie rien de plus que ce que la relecture a valide.
+#
+# ACTIVATION REQUISE, UNE FOIS : depot > Settings > Pages > Source :
+# "GitHub Actions". Sans cela le deploiement echoue avec une erreur de
+# permissions, pas avec un site vide.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    # Ne redeploie que si le site peut avoir change.
+    paths:
+      - "articles/**"
+      - "src/site/**"
+      - "protocole-editorial-v1.md"
+      - "changelog-editorial.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un seul deploiement a la fois, sans annuler celui en cours : interrompre une
+# publication a mi-chemin laisserait le site dans un etat indetermine.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  construire:
+    name: Construire le site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generer le site
+        # L'URL publique sert aux liens absolus du flux RSS et du sitemap.
+        # Deduite du depot plutot qu'ecrite en dur : un fork produit ses
+        # propres liens sans rien modifier.
+        env:
+          MEDIA_SITE_URL: ${{ steps.pages.outputs.base_url || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+        run: npm run site
+
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deployer:
+    name: Deployer
+    needs: construire
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

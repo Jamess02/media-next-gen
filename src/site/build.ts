@@ -20,8 +20,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ArticleSchema, type Article } from "../protocol/schema.js";
-import { verifyReview } from "../editorial/validation.js";
-import { documentPage, articlePage, indexPage } from "./templates.js";
+import { verifyReview, type ReviewRecord } from "../editorial/validation.js";
+import { renderFeed, renderRobots, renderSitemap } from "./feed.js";
+import {
+  documentPage,
+  articlePage,
+  indexPage,
+  notFoundPage,
+} from "./templates.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RACINE = join(HERE, "..", "..");
@@ -65,6 +71,9 @@ export async function buildSite(
 
   const rejected: BuildResult["rejected"] = [];
   const articles: Article[] = [];
+  // L'attestation accompagne l'article jusqu'au lecteur : sans elle affichee,
+  // le circuit de relecture ne produit aucune redevabilite visible.
+  const reviews = new Map<string, ReviewRecord>();
 
   if (existsSync(outputDir)) {
     const files = (await readdir(outputDir)).filter(
@@ -102,6 +111,7 @@ export async function buildSite(
           rejected.push({ file, reason: review.reason ?? "relecture invalide" });
           continue;
         }
+        if (review.review !== undefined) reviews.set(check.data.id, review.review);
       }
 
       articles.push(check.data);
@@ -127,7 +137,10 @@ export async function buildSite(
   await ecrire("index.html", indexPage(articles));
 
   for (const article of articles) {
-    await ecrire(`articles/${article.id}.html`, articlePage(article));
+    await ecrire(
+      `articles/${article.id}.html`,
+      articlePage(article, reviews.get(article.id)),
+    );
   }
 
   await ecrire(
@@ -149,6 +162,15 @@ export async function buildSite(
       "changelog",
     ),
   );
+
+  await ecrire("404.html", notFoundPage());
+
+  // Flux et fichiers d'indexation : ce qui distingue un media d'un dossier de
+  // pages. Ils portent des URLs ABSOLUES — un lecteur de flux ne sait pas d'ou
+  // vient le document qu'il lit.
+  await ecrire("feed.xml", renderFeed(articles));
+  await ecrire("sitemap.xml", renderSitemap(articles));
+  await ecrire("robots.txt", renderRobots());
 
   // Empeche GitHub Pages de traiter la sortie avec Jekyll, qui ignorerait les
   // dossiers commencant par un underscore et reecrirait certaines pages.

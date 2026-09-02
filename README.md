@@ -238,6 +238,10 @@ régénérés à chaque exécution).
 
 Parti pris visuel inspiré de [l0g.fr](https://l0g.fr) : noir sur blanc, dense, entrées numérotées, marqueurs de section `//`. Là où l0g signale un risque de marché, on signale ce que le protocole rend obligatoire — niveau de preuve (§2), type de claim (§3), tier de source (§4). Chaque `[[claim-1]]` du corps devient un **lien vers sa preuve** : la promesse du §0 rendue cliquable.
 
+Le site produit 8 pages types : index, une page par article, protocole, changelog, 404, plus **flux RSS**, sitemap et robots.txt. L'attestation de relecture est **affichée sur chaque article** — nom du relecteur, date, observation, et l'empreinte du contenu relu : une relecture qui reste dans un fichier JSON n'engage personne aux yeux du public.
+
+Le flux ne diffuse **que le résumé**, jamais le corps complet : un article de ce média ne se lit pas sans ses preuves, et niveaux, tiers et sources datées ne survivraient pas au passage en flux.
+
 Le rendu markdown est [maison](src/site/markdown.ts), et c'est un choix de sécurité : `marked` et `markdown-it` laissent passer le HTML brut par défaut, ce qui rouvrirait la faille fermée dans `editorial/markdown.ts`. Ici l'échappement précède toute mise en forme — aucun chemin ne permet à du HTML source d'atteindre la sortie. Un article dont le JSON ne valide plus contre le §7 n'est pas publié, et le motif est affiché.
 
 **Studio** — `npm run studio` ouvre une interface de pilotage locale : lancer le pipeline, suivre les étapes en direct (SSE), voir les arrêts du gate avec leurs motifs, consulter le journal d'audit. Elle **n'écoute que sur `127.0.0.1`** : ce serveur déclenche des appels potentiellement facturés. Aucun contenu dynamique n'est inséré via `innerHTML` — il vient du pipeline, donc indirectement de sources externes.
@@ -257,6 +261,8 @@ L'Éditeur ne peut écrire que dans `output/`. Rien ne passe dans `articles/` sa
 **L'attestation porte sur un contenu, pas sur un identifiant.** Elle enregistre l'empreinte SHA-256 de l'article relu. Modifier l'article ensuite invalide la relecture, et la génération du site le refuse — vérifié : un JSON resté parfaitement valide dont seul le titre change est écarté avec le motif *« l'article a été modifié après relecture »*. La CI exécute ce même contrôle, donc un article falsifié ne peut pas être commité en silence.
 
 Pour prévisualiser des brouillons en local : `npm run dev -- site --brouillons` — l'aperçu s'annonce comme tel et ne doit pas être déployé.
+
+**Déploiement** : le workflow [pages.yml](.github/workflows/pages.yml) construit et publie sur GitHub Pages à chaque push touchant `articles/`. Il échoue si une attestation manque ou ne correspond plus au contenu — un article modifié après relecture ne peut pas être déployé. **Une activation manuelle est requise une fois** : dépôt → Settings → Pages → Source : « GitHub Actions ». L'URL publique est déduite du dépôt, donc un fork produit ses propres liens sans rien modifier.
 
 **Pourquoi cette barrière existe.** Trois exécutions avec de vrais modèles ont produit trois fautes distinctes : un chiffre partiel typé `fait`, une recommandation implicite dans un titre, et un taux inventé adossé à des sources qui n'en parlent pas. Deux ont été rattrapées par du code. La troisième ne pouvait pas l'être — vérifier qu'une source soutient *précisément* une affirmation (§2, niveau 3) est un jugement, pas une fonction.
 

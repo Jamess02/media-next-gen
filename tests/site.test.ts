@@ -158,6 +158,36 @@ describe("page d'article", () => {
     expect(html).toMatch(/&lt;iframe/);
   });
 
+  it("AFFICHE l'attestation de relecture", () => {
+    // Le circuit de relecture ne produit de redevabilite que si le nom de la
+    // personne qui engage sa responsabilite atteint le lecteur.
+    const html = articlePage(article(), {
+      article_id: "article-00000000-0000-4000-8000-000000000000",
+      article_title: "Titre de test",
+      reviewer: "Relecteur Test",
+      reviewed_at: "2026-09-02T10:00:00Z",
+      content_sha256: "a".repeat(64),
+      note: "Sources recoupees.",
+    });
+
+    expect(html).toMatch(/relecture humaine/);
+    expect(html).toMatch(/Relecteur Test/);
+    expect(html).toMatch(/Sources recoupees/);
+    expect(html).toMatch(/Empreinte du contenu relu/);
+  });
+
+  it("n'affiche aucun bloc de relecture sans attestation", () => {
+    expect(articlePage(article())).not.toMatch(/relecture humaine/);
+  });
+
+  it("porte les metadonnees de partage et l'URL canonique", () => {
+    const html = articlePage(article());
+    expect(html).toMatch(/property="og:title"/);
+    expect(html).toMatch(/property="og:type" content="article"/);
+    expect(html).toMatch(/rel="canonical"/);
+    expect(html).toMatch(/type="application\/rss\+xml"/);
+  });
+
   it("signale une revision dans la dateline", () => {
     const html = articlePage(
       article({
@@ -293,6 +323,14 @@ describe("generation du site", () => {
     await build();
     const index = await readFile(join(siteDir, "index.html"), "utf8");
     expect(index.indexOf("recent")).toBeLessThan(index.indexOf("ancien"));
+  });
+
+  it("genere flux, sitemap, robots et page 404", async () => {
+    await seed(article());
+    const r = await build();
+    for (const p of ["feed.xml", "sitemap.xml", "robots.txt", "404.html"]) {
+      expect(r.pages, p).toContain(p);
+    }
   });
 
   it("depose .nojekyll pour GitHub Pages", async () => {

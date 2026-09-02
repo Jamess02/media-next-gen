@@ -229,6 +229,35 @@ article .dateline .revise { color: var(--moyen); }
 }
 .claim ul.sources a { color: var(--accent); }
 
+/* --- Attestation de relecture -------------------------------------------
+ * Encadre plutot que discret : c'est le nom d'une personne qui engage sa
+ * responsabilite sur le texte. Le lecteur doit le voir, pas le chercher.
+ * ---------------------------------------------------------------------- */
+
+.relecture {
+  border: 1px solid var(--trait);
+  border-left: 3px solid var(--fort);
+  border-radius: 4px;
+  padding: 14px 18px;
+  margin: 28px 0;
+  background: var(--fond-doux);
+  font-size: 15px;
+}
+.relecture .section { margin: 0 0 8px; }
+.relecture p { margin: 0 0 8px; }
+.relecture p:last-child { margin-bottom: 0; }
+.relecture .note { font-style: italic; color: #3d3d3d; }
+.relecture .empreinte {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gris);
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  .relecture .note { color: #c9c9c9; }
+}
+
 /* --- Divers ------------------------------------------------------------- */
 
 .ecartees li { color: var(--gris); font-size: 14.5px; margin-bottom: 6px; }
