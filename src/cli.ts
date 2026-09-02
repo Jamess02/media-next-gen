@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { PublicationRefused } from "./agents/editeur.js";
 import { AuditLog } from "./audit/audit-log.js";
+import { validateArticle } from "./editorial/validation.js";
 import { buildSite } from "./site/build.js";
 import { startStudio } from "./studio/server.js";
 import { ArticleNotFound, reviseArticle } from "./editorial/revision.js";
@@ -63,7 +64,8 @@ type Command =
   | PublishCommand
   | ReviseCommand
   | { kind: "list-providers" }
-  | { kind: "build-site" }
+  | { kind: "validate"; articleId: string; reviewer: string; note?: string }
+  | { kind: "build-site"; drafts: boolean }
   | { kind: "studio"; port: number }
   | { kind: "error"; message: string };
 
@@ -72,8 +74,18 @@ function parseArgs(argv: readonly string[]): Command {
   let provider = (process.env["MEDIA_PROVIDER"] ?? "mock") as ProviderName;
   let realSources = false;
   let type: string | undefined;
+  let relecteur: string | undefined;
+  let drafts = false;
 
   for (const arg of argv) {
+    if (arg.startsWith("--relecteur=")) {
+      relecteur = arg.slice("--relecteur=".length).replace(/^["']|["']$/g, "");
+      continue;
+    }
+    if (arg === "--brouillons") {
+      drafts = true;
+      continue;
+    }
     if (arg.startsWith("--provider=")) {
       provider = arg.slice("--provider=".length) as ProviderName;
     }
@@ -86,7 +98,32 @@ function parseArgs(argv: readonly string[]): Command {
     else positional.push(arg);
   }
 
-  if (positional[0] === "site") return { kind: "build-site" };
+  if (positional[0] === "valider") {
+    const articleId = positional[1];
+    const note = positional.slice(2).join(" ").trim();
+    if (articleId === undefined) {
+      return {
+        kind: "error",
+        message: 'Usage : valider <article-id> --relecteur="Nom" ["observation"]',
+      };
+    }
+    if (relecteur === undefined || relecteur.trim().length === 0) {
+      return {
+        kind: "error",
+        message:
+          "--relecteur est obligatoire : une relecture anonyme n'engage personne.\n" +
+          '  npm run dev -- valider <article-id> --relecteur="Ton Nom"',
+      };
+    }
+    return {
+      kind: "validate",
+      articleId,
+      reviewer: relecteur,
+      ...(note.length > 0 ? { note } : {}),
+    };
+  }
+
+  if (positional[0] === "site") return { kind: "build-site", drafts };
   if (positional[0] === "studio") {
     const port = Number(positional[1]);
     return { kind: "studio", port: Number.isFinite(port) && port > 0 ? port : 5173 };
@@ -255,8 +292,48 @@ async function revise(command: ReviseCommand): Promise<void> {
   console.log("L'entree est consignee dans changelog-editorial.md (§6, append-only).");
 }
 
-async function buildSiteCommand(): Promise<void> {
-  const r = await buildSite();
+async function validateCommand(command: {
+  articleId: string;
+  reviewer: string;
+  note?: string;
+}): Promise<void> {
+  const r = await validateArticle({
+    articleId: command.articleId,
+    reviewer: command.reviewer,
+    ...(command.note === undefined ? {} : { note: command.note }),
+  });
+
+  console.log("ARTICLE VALIDE ET PUBLIE");
+  console.log(`  Titre     : ${r.article.title}`);
+  console.log(`  Relecteur : ${r.review.reviewer}`);
+  console.log(`  Relu le   : ${r.review.reviewed_at}`);
+  console.log(`  Empreinte : ${r.review.content_sha256.slice(0, 16)}…`);
+  console.log(`  ${r.articlePath}`);
+
+  if (r.warnings.length > 0) {
+    console.log("");
+    console.log("Avertissements acceptes en validant :");
+    for (const w of r.warnings) {
+      console.log(`  - [${w.clause} ${w.rule}] ${w.message}`);
+    }
+  }
+
+  console.log("");
+  console.log("Prochaine etape : `npm run site`, puis commiter articles/.");
+  console.log("Toute modification ulterieure de l'article invalidera la relecture.");
+}
+
+async function buildSiteCommand(drafts: boolean): Promise<void> {
+  const r = drafts
+    ? await buildSite({
+        outputDir: join(process.cwd(), "output"),
+        requireReview: false,
+      })
+    : await buildSite();
+
+  if (drafts) {
+    console.log("! APERCU DE BROUILLONS — articles NON relus, ne pas deployer.\n");
+  }
   console.log(`SITE GENERE — ${r.published} article(s), ${r.pages.length} page(s)`);
   console.log(`  ${r.siteDir}`);
 
@@ -264,8 +341,17 @@ async function buildSiteCommand(): Promise<void> {
   // d'un article modifie a la main ou produit par une version anterieure.
   if (r.rejected.length > 0) {
     console.log("");
-    console.log("Fichiers ecartes (non conformes au §7) :");
+    console.log("Fichiers ecartes :");
     for (const rej of r.rejected) console.log(`  - ${rej.file} : ${rej.reason}`);
+    // Sortie en echec : un article versionne mais non publiable est un
+    // probleme a traiter, pas une information a faire defiler. C'est ce qui
+    // permet a la CI d'arreter un article modifie apres relecture.
+    process.exitCode = 1;
+  }
+  if (r.published === 0 && !drafts) {
+    console.log("");
+    console.log("Aucun article relu. Valider un brouillon :");
+    console.log('  npm run dev -- valider <article-id> --relecteur="Ton Nom"');
   }
   console.log("");
   console.log("Ouvrir : " + join(r.siteDir, "index.html"));
@@ -296,8 +382,10 @@ async function main(): Promise<void> {
     case "list-providers":
       console.log(describeProviders());
       return;
+    case "validate":
+      return validateCommand(command);
     case "build-site":
-      return buildSiteCommand();
+      return buildSiteCommand(command.drafts);
     case "studio":
       return studioCommand(command.port);
     case "revise":

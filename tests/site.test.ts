@@ -213,12 +213,17 @@ describe("generation du site", () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
+  // Ces tests portent sur la GENERATION du site. Le controle de relecture est
+  // une preoccupation distincte, couverte par validation.test.ts : l'imposer
+  // ici obligerait chaque cas a produire une attestation sans rien tester de
+  // plus sur le rendu.
   const build = () =>
     buildSite({
       outputDir,
       siteDir,
       protocolPath: join(workDir, "protocole.md"),
       changelogPath: join(workDir, "changelog.md"),
+      requireReview: false,
     });
 
   const seed = async (a: Article) =>

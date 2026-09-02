@@ -118,13 +118,19 @@ describe("chaine de publication complete", () => {
     expect(entries.every((e) => e.raw_sha256.length === 64)).toBe(true);
   });
 
-  it("consigne la publication dans le changelog versionne (§6 / §9.6)", async () => {
+  it("n'ecrit PAS au changelog public : le pipeline produit un brouillon", async () => {
+    // Le §6 enregistre les publications, c'est-a-dire les moments ou un humain
+    // engage sa responsabilite. Consigner chaque passage du pipeline
+    // remplirait le registre editorial public de textes que personne n'a lus.
+    // L'entree est ecrite par la validation (voir validation.test.ts).
     const { result, changelogPath } = await runPipeline();
     expect(result.status).toBe("published");
 
-    const changelog = await readFile(changelogPath, "utf8");
-    expect(changelog).toMatch(/Publication initiale/);
-    expect(changelog).toMatch(/append-only/);
+    const { existsSync } = await import("node:fs");
+    if (existsSync(changelogPath)) {
+      const changelog = await readFile(changelogPath, "utf8");
+      expect(changelog).not.toMatch(/Publication/);
+    }
   });
 
   it("affiche type, niveau de preuve et sources dans le markdown publie", async () => {

@@ -242,7 +242,23 @@ Le rendu markdown est [maison](src/site/markdown.ts), et c'est un choix de sécu
 
 **Studio** — `npm run studio` ouvre une interface de pilotage locale : lancer le pipeline, suivre les étapes en direct (SSE), voir les arrêts du gate avec leurs motifs, consulter le journal d'audit. Elle **n'écoute que sur `127.0.0.1`** : ce serveur déclenche des appels potentiellement facturés. Aucun contenu dynamique n'est inséré via `innerHTML` — il vient du pipeline, donc indirectement de sources externes.
 
-**Avant tout déploiement**, une décision à trancher : `output/` est exclu du versionnement, donc une CI qui générerait le site publierait un site vide. Mettre le site en ligne suppose de décider quels articles sont versionnés — c'est éditorial, pas technique.
+### Le circuit de publication : rien ne sort sans relecture humaine
+
+```
+pipeline  →  output/     brouillon, NON versionné, personne ne l'a lu
+                ↓        npm run dev -- valider <id> --relecteur="Nom"
+relecture →  articles/   versionné, avec attestation de relecture
+                ↓        npm run site
+public    →  public/     site, construit UNIQUEMENT depuis articles/
+```
+
+L'Éditeur ne peut écrire que dans `output/`. Rien ne passe dans `articles/` sans une action humaine explicite, et le changelog public (§6) enregistre ce moment-là — pas le passage du pipeline, qui remplirait le registre éditorial de textes que personne n'a lus.
+
+**L'attestation porte sur un contenu, pas sur un identifiant.** Elle enregistre l'empreinte SHA-256 de l'article relu. Modifier l'article ensuite invalide la relecture, et la génération du site le refuse — vérifié : un JSON resté parfaitement valide dont seul le titre change est écarté avec le motif *« l'article a été modifié après relecture »*. La CI exécute ce même contrôle, donc un article falsifié ne peut pas être commité en silence.
+
+Pour prévisualiser des brouillons en local : `npm run dev -- site --brouillons` — l'aperçu s'annonce comme tel et ne doit pas être déployé.
+
+**Pourquoi cette barrière existe.** Trois exécutions avec de vrais modèles ont produit trois fautes distinctes : un chiffre partiel typé `fait`, une recommandation implicite dans un titre, et un taux inventé adossé à des sources qui n'en parlent pas. Deux ont été rattrapées par du code. La troisième ne pouvait pas l'être — vérifier qu'une source soutient *précisément* une affirmation (§2, niveau 3) est un jugement, pas une fonction.
 
 ## Sécurité
 

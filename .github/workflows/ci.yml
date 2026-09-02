@@ -57,6 +57,13 @@ jobs:
           test -f protocole-editorial-v1.md || { echo "protocole-editorial-v1.md manquant"; exit 1; }
           test -f changelog-editorial.md || { echo "changelog-editorial.md manquant (§9.6)"; exit 1; }
 
+      # Chaque article versionne doit porter une attestation de relecture dont
+      # l'empreinte correspond a son contenu. Sans ce controle, un article
+      # modifie apres relecture — ou depose sans relecture — pourrait etre
+      # commite puis atteindre le site.
+      - name: Verifier les attestations de relecture
+        run: npx tsx src/cli.ts site
+
       # Filet de securite sur les secrets. Le journal d'audit est versionne et
       # le depot est public : une clef qui y arriverait serait conservee par
       # l'historique Git meme apres suppression du fichier.

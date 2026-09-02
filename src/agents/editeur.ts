@@ -92,14 +92,11 @@ export class Editeur {
     await writeFile(jsonPath, JSON.stringify(article, null, 2), "utf8");
     await writeFile(markdownPath, renderArticle(article), "utf8");
 
-    await this.changelog.recordPublication({
-      articleId: article.id,
-      articleTitle: article.title,
-      publishedAt: article.published_at,
-      note:
-        `${article.claims.length} claim(s) structurante(s), ` +
-        `niveau de preuve minimum ${Math.min(...article.claims.map((c) => c.evidence_level))}.`,
-    });
+    // PAS d'entree au changelog public ici. L'Editeur produit un BROUILLON
+    // dans `output/` ; la publication au sens du §6 est l'instant ou un humain
+    // relit et engage sa responsabilite (voir editorial/validation.ts).
+    // Consigner chaque passage du pipeline remplirait le registre editorial
+    // public de textes que personne n'a lus.
 
     return {
       article,

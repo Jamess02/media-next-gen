@@ -20,16 +20,28 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ArticleSchema, type Article } from "../protocol/schema.js";
+import { verifyReview } from "../editorial/validation.js";
 import { documentPage, articlePage, indexPage } from "./templates.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RACINE = join(HERE, "..", "..");
 
 export interface BuildOptions {
+  /**
+   * Source des articles. Par defaut `articles/` — les textes RELUS.
+   *
+   * Pointer sur `output/` genere un apercu des brouillons : utile en local,
+   * jamais pour le site public.
+   */
   outputDir?: string;
   siteDir?: string;
   protocolPath?: string;
   changelogPath?: string;
+  /**
+   * Exiger une attestation de relecture valide pour chaque article.
+   * Vrai par defaut. Faux pour previsualiser des brouillons.
+   */
+  requireReview?: boolean;
 }
 
 export interface BuildResult {
@@ -43,8 +55,9 @@ export interface BuildResult {
 export async function buildSite(
   options: BuildOptions = {},
 ): Promise<BuildResult> {
-  const outputDir = options.outputDir ?? join(RACINE, "output");
+  const outputDir = options.outputDir ?? join(RACINE, "articles");
   const siteDir = options.siteDir ?? join(RACINE, "public");
+  const requireReview = options.requireReview ?? true;
   const protocolPath =
     options.protocolPath ?? join(RACINE, "protocole-editorial-v1.md");
   const changelogPath =
@@ -54,7 +67,9 @@ export async function buildSite(
   const articles: Article[] = [];
 
   if (existsSync(outputDir)) {
-    const files = (await readdir(outputDir)).filter((f) => f.endsWith(".json"));
+    const files = (await readdir(outputDir)).filter(
+      (f) => f.endsWith(".json") && !f.endsWith(".review.json"),
+    );
     for (const file of files.sort()) {
       const raw = await readFile(join(outputDir, file), "utf8");
       let parsed: unknown;
@@ -75,6 +90,20 @@ export async function buildSite(
         });
         continue;
       }
+      // Un article sans relecture valide n'atteint pas le public. Le controle
+      // porte sur l'EMPREINTE du contenu : modifier un article apres relecture
+      // invalide l'attestation, qui ne porte plus sur ce texte.
+      if (requireReview) {
+        const review = await verifyReview(
+          check.data,
+          join(outputDir, `${check.data.id}.review.json`),
+        );
+        if (!review.ok) {
+          rejected.push({ file, reason: review.reason ?? "relecture invalide" });
+          continue;
+        }
+      }
+
       articles.push(check.data);
     }
   }

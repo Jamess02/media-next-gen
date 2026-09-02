@@ -15,12 +15,14 @@ dist/
 # sont caviardees de leurs secrets par src/audit/redaction.ts.
 audit/raw/
 
-# Articles produits par le mode simulation. En production, `output/` serait
-# consomme par le site et versionne ailleurs ; ici il ne contient que du
-# [SIMULATION] regenere a chaque execution.
+# Sortie du pipeline : espace de TRAVAIL. Un article y est un brouillon, que
+# personne n'a encore relu.
 #
-# `changelog-editorial.md` n'est PAS ignore : le §9.6 exige qu'il soit
-# versionne dans le repo.
+# `articles/` n'est PAS ignore : il contient les articles relus par un humain,
+# avec leur attestation de relecture. C'est la seule source du site public, et
+# le versionnement est ce qui rend cette relecture verifiable.
+#
+# `changelog-editorial.md` non plus : le §9.6 l'exige.
 output/
 
 # Site statique genere par `npm run site`, reconstruit entierement a chaque
