@@ -15,6 +15,7 @@ import { PublicationRefused } from "../src/agents/editeur.js";
 import { EditorialChangelog } from "../src/editorial/changelog.js";
 import { InvalidArticleId } from "../src/editorial/revision.js";
 import {
+  canonicalize,
   contentHash,
   validateArticle,
   verifyReview,
@@ -125,7 +126,107 @@ describe("promotion d'un brouillon relu", () => {
   });
 });
 
+describe("canonicalisation et empreinte", () => {
+  // Ces tests couvrent une faille reelle : la premiere version utilisait
+  // `JSON.stringify(article, Object.keys(article).sort())`, croyant trier.
+  // Passe en tableau, ce second argument est une LISTE D'AUTORISATION
+  // appliquee a tous les niveaux : chaque claim se reduisait a son `id`, et
+  // texte, type, niveau et sources n'entraient pas dans l'empreinte.
+
+  it("l'empreinte couvre le TEXTE d'une claim", () => {
+    const a = article();
+    const b = article({ claims: [claim({ text: "Texte completement different" })] });
+    expect(contentHash(a)).not.toBe(contentHash(b));
+  });
+
+  it("l'empreinte couvre le NIVEAU DE PREUVE d'une claim", () => {
+    const a = article({ claims: [claim({ evidence_level: 3 })] });
+    const b = article({ claims: [claim({ evidence_level: 2 })] });
+    expect(contentHash(a)).not.toBe(contentHash(b));
+  });
+
+  it("l'empreinte couvre l'URL d'une SOURCE", () => {
+    const a = article();
+    const b = article({
+      claims: [
+        claim({
+          sources: [
+            {
+              url: "https://source-substituee.example/x",
+              tier: 1,
+              date_observed: "2026-08-27T09:00:00Z",
+              date_published: "2026-08-12T14:00:00Z",
+            },
+          ],
+        }),
+      ],
+    });
+    expect(contentHash(a)).not.toBe(contentHash(b));
+  });
+
+  it("l'empreinte couvre les notes editoriales", () => {
+    const a = article();
+    const b = article({
+      editorial_notes: { uncertainty_flags: ["ajoutee"], excluded_claims: [] },
+    });
+    expect(contentHash(a)).not.toBe(contentHash(b));
+  });
+
+  it("conserve tous les champs imbriques dans la forme canonique", () => {
+    const canonique = canonicalize(article());
+    for (const champ of ["text", "evidence_level", "tier", "date_observed"]) {
+      expect(canonique, champ).toContain(`"${champ}"`);
+    }
+  });
+
+  it("est stable quel que soit l'ordre des clefs", () => {
+    // Une meme donnee doit toujours donner la meme empreinte, sinon une
+    // relecture valide serait invalidee par une simple reserialisation.
+    const a = article();
+    const reordonne = JSON.parse(
+      JSON.stringify({
+        changelog: a.changelog,
+        claims: a.claims.map((c) => ({
+          sources: c.sources.map((s) => ({
+            tier: s.tier,
+            url: s.url,
+            date_published: s.date_published,
+            date_observed: s.date_observed,
+          })),
+          type: c.type,
+          text: c.text,
+          id: c.id,
+          evidence_level: c.evidence_level,
+        })),
+        body: a.body,
+        editorial_notes: a.editorial_notes,
+        authors_agents: a.authors_agents,
+        revised_at: a.revised_at,
+        published_at: a.published_at,
+        title: a.title,
+        id: a.id,
+      }),
+    ) as Article;
+
+    expect(contentHash(reordonne)).toBe(contentHash(a));
+  });
+});
+
 describe("integrite de l'attestation", () => {
+  it("INVALIDE l'attestation si une CLAIM est falsifiee", async () => {
+    // Le cas le plus grave, et celui que la premiere version laissait passer :
+    // changer le texte et le niveau d'une claim sans toucher au titre.
+    const a = await seed();
+    const r = await valider();
+    const falsifie: Article = {
+      ...a,
+      claims: [claim({ text: "Affirmation substituee", evidence_level: 2 })],
+    };
+    const check = await verifyReview(falsifie, r.reviewPath);
+    expect(check.ok).toBe(false);
+    expect(check.reason).toMatch(/modifie apres relecture/);
+  });
+
   it("valide une attestation qui correspond au contenu", async () => {
     const a = await seed();
     const r = await valider();

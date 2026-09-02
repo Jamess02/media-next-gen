@@ -60,9 +60,40 @@ export interface ReviewRecord {
   note: string | null;
 }
 
+/**
+ * Trie les clefs RECURSIVEMENT, a tous les niveaux.
+ *
+ * La premiere version faisait `JSON.stringify(article, Object.keys(article).sort())`.
+ * Erreur grave : passe en tableau, le second argument de `JSON.stringify` n'est
+ * pas un ordre de tri mais une LISTE D'AUTORISATION appliquee a TOUS les
+ * niveaux. Toute clef imbriquee absente de la liste racine etait donc
+ * supprimee, et chaque claim se reduisait a `{"id":"claim-1"}` :
+ *
+ *   texte, type, niveau de preuve et sources n'entraient PAS dans l'empreinte.
+ *
+ * Une attestation pouvait ainsi couvrir un article dont on avait change le
+ * texte d'une claim, son niveau et l'URL de sa source. Le controle attrapait
+ * un titre modifie — clef racine — ce qui donnait une fausse assurance.
+ *
+ * Defaut trouve en lisant la specification de canonicalisation de l0g.fr
+ * (« clés triées récursivement »), qui a conduit a verifier la notre.
+ */
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value !== null && typeof value === "object") {
+    const objet = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(objet)
+        .sort()
+        .map((k) => [k, canonicalValue(objet[k])]),
+    );
+  }
+  return value;
+}
+
 /** Serialisation canonique : une meme donnee doit donner la meme empreinte. */
 export function canonicalize(article: Article): string {
-  return JSON.stringify(article, Object.keys(article).sort());
+  return JSON.stringify(canonicalValue(article));
 }
 
 export function contentHash(article: Article): string {
