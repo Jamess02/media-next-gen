@@ -36,7 +36,18 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "fred.stlouisfed.org", tier: 1, name: "FRED (Fed St. Louis)" },
   { domain: "stlouisfed.org", tier: 1, name: "Fed St. Louis" },
   { domain: "oecd.org", tier: 1, name: "OCDE" },
+  // Les trois domaines Comtrade sont distincts : `comtradeplus` et
+  // `comtradeapi` ne sont PAS des sous-domaines de `comtrade.un.org`. Sans
+  // ces entrees, une URL Comtrade legitime retombait au tier 3 par defaut.
   { domain: "comtrade.un.org", tier: 1, name: "UN Comtrade" },
+  { domain: "comtradeplus.un.org", tier: 1, name: "UN Comtrade Plus" },
+  { domain: "comtradeapi.un.org", tier: 1, name: "UN Comtrade (API)" },
+  {
+    domain: "sanctionslistservice.ofac.treas.gov",
+    tier: 1,
+    name: "OFAC (service de listes)",
+  },
+  { domain: "treas.gov", tier: 1, name: "US Treasury" },
   { domain: "usgs.gov", tier: 1, name: "USGS" },
   { domain: "firms.modaps.eosdis.nasa.gov", tier: 1, name: "NASA FIRMS" },
   { domain: "nasa.gov", tier: 1, name: "NASA" },

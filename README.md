@@ -178,6 +178,11 @@ Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sort
 | [Eurostat](src/sources/eurostat.ts) | 1 | non | Index JSON-stat à plat : l'adaptateur **refuse de deviner** si une dimension n'est pas figée |
 | [USGS](src/sources/usgs.ts) | 1 | non | Solution `automatic` signalée comme préliminaire et révisable (§5.2) |
 | [FRED](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Valeurs `"."` jamais converties en 0 ; clé dans l'URL, caviardée au journal |
+| [OFAC](src/sources/ofac.ts) | 1 | non | Fichier de **deltas** (11 Ko) plutôt que la liste complète (5,6 Mo) ; **aucune identité publiée** |
+
+**Sur OFAC** — le fichier de deltas contient les noms des personnes désignées. L'adaptateur ne les extrait pas, délibérément : ce pipeline a déjà produit, avec de vrais modèles, un chiffre partiel typé `fait` et un taux inventé. Les mêmes mécanismes appliqués à « X a été sanctionné » ne produiraient pas une erreur de chiffre mais une **imputation nominative fausse**. L'observation porte sur l'action — date, nombre d'entités, programmes, autorité légale — et le lecteur suit le lien vers OFAC pour les identités.
+
+**Sources écartées après mesure** — le [catalogue](src/sources/catalogue.ts) documente sept sources non branchées avec leur motif daté. La plus instructive est **UN Comtrade** : son endpoint public est ouvert, mais la même requête a rendu 500 lignes puis 0 à cinq minutes d'intervalle, et 115 lignes y portent des codes d'agrégat identiques pour des valeurs sans rapport. Une source non reproductible ne peut pas fonder une claim au sens du §2.
 
 **l0g.fr n'est pas une source de ce pipeline**, bien que le §4 le liste en tier 2. C'est une *référence de méthode* : son [agent surface](https://l0g.fr/api/) a inspiré la vérification d'intégrité par empreinte canonique et l'attestation de relecture nommée. Lire sa spécification de canonicalisation a d'ailleurs révélé une faille réelle dans la nôtre.
 

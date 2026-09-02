@@ -12,6 +12,7 @@
  */
 
 import { eurostatAdapter } from "./eurostat.js";
+import { ofacAdapter } from "./ofac.js";
 import { fredAdapter } from "./fred.js";
 import { imfAdapter } from "./imf.js";
 import type { SourceAdapter } from "./types.js";
@@ -54,6 +55,10 @@ export function buildSourceCatalogue(
       label: "IPCH, taux de variation annuel",
     }),
     usgsAdapter({ minMagnitude: 6, limit: 5 }),
+
+    // Volet geopolitique : jusqu'ici le catalogue ne contenait que des series
+    // macro, alors que le media couvre « geopolitique ET economie ».
+    ofacAdapter(),
   ];
 
   const skipped: SkippedSource[] = [];
@@ -81,6 +86,37 @@ export function buildSourceCatalogue(
   // Documentees ici plutot que supprimees : le lecteur du code doit savoir
   // pourquoi une source du §4 n'est pas branchee.
   skipped.push(
+    {
+      id: "comtrade:preview",
+      reason:
+        "Endpoint public `preview` ouvert mais NON REPRODUCTIBLE, ce qui est " +
+        "redhibitoire pour le §2. Mesures du 2026-09-02 : la meme requete pour " +
+        "2023 a rendu 500 lignes puis 0 lignes a cinq minutes d'intervalle ; et " +
+        "en 2022, 115 lignes portent des codes d'agregat identiques " +
+        "(customsCode C00, motCode 0, mosCode 0) pour des valeurs de 632,8 Md$, " +
+        "0,1 Md$ et 1,0 Md$ — aucun critere documente ne permet d'identifier " +
+        "l'agregat reel. Les annees exploitables (2020-2022) accusent en outre " +
+        "trois ans de retard. Une claim fondee sur cette source ne serait pas " +
+        "reproductible par un lecteur.",
+    },
+    {
+      id: "ucdp:gedevents",
+      reason:
+        "Conflits armes (tier 2). L'API repondait sans clef ; elle exige " +
+        "desormais un en-tete `x-ucdp-access-token` (HTTP 401 au 2026-09-02). " +
+        "C'etait le meilleur candidat tier 2 gratuit.",
+    },
+    {
+      id: "oecd:sdmx",
+      reason:
+        "HTTP 500 sur l'endpoint SDMX public, cote fournisseur (verifie le 2026-09-02).",
+    },
+    {
+      id: "nasa-firms:area",
+      reason:
+        "Necessite une MAP_KEY, gratuite mais soumise a inscription " +
+        "(https://firms.modaps.eosdis.nasa.gov/api/map_key/).",
+    },
     {
       id: "gdelt:doc",
       reason:
