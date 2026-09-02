@@ -11,6 +11,11 @@
  * declarer au lecteur au lieu de laisser croire a une couverture complete.
  */
 
+import {
+  DECLARED_INTERESTS,
+  interestCaveat,
+  type DeclaredInterest,
+} from "../protocol/interests.js";
 import { eurostatAdapter } from "./eurostat.js";
 import { ofacAdapter } from "./ofac.js";
 import { rssAdapter } from "./rss.js";
@@ -30,6 +35,26 @@ import { worldBankAdapter } from "./worldbank.js";
 const PRESSE_CAVEAT =
   "Source de presse (tier 3) : couverture editorialisee, ne peut pas fonder " +
   "un fait a elle seule (§3, EP-001) ; a confronter aux sources primaires.";
+
+/**
+ * Recupere un interet declare par son domaine.
+ *
+ * Le catalogue ne redige PAS la mention : il la demande au registre. Si la
+ * formulation etait recopiee ici, elle finirait par diverger de celle qu'exige
+ * le gate, et une source correctement branchee bloquerait a la publication.
+ * L'echec est immediat et bruyant : un domaine absent du registre signifie que
+ * la source serait collectee sans que sa divulgation soit exigee.
+ */
+function interet(domain: string): DeclaredInterest {
+  const found = DECLARED_INTERESTS.find((i) => i.domain === domain);
+  if (found === undefined) {
+    throw new Error(
+      `Aucun interet declare pour "${domain}". Une source a interet ne peut pas ` +
+        `etre branchee sans son entree dans protocol/interests.ts.`,
+    );
+  }
+  return found;
+}
 
 export interface SkippedSource {
   id: string;
@@ -83,6 +108,21 @@ export function buildSourceCatalogue(
       limit: 3,
     }),
 
+    // Reserve federale — communiques du Board. Le fil publie les decisions,
+    // les minutes de taux d'escompte et les actions d'application. C'est
+    // l'emetteur lui-meme : tier 1, sans intermediaire de presse.
+    //
+    // NE PAS confondre avec le bilan : les CHIFFRES du H.4.1 arrivent par la
+    // serie FRED WALCL, plus bas. Voir le motif d'ecart de `fed:h41-notices`.
+    rssAdapter({
+      id: "fed:press",
+      source: "Reserve federale (Board of Governors)",
+      url: "https://www.federalreserve.gov/feeds/press_all.xml",
+      describes: "Communiques du Board of Governors de la Reserve federale",
+      type: "communique-banque-centrale",
+      limit: 3,
+    }),
+
     // --- Tier 3 : presse ---------------------------------------------------
     //
     // Premieres sources secondaires du catalogue. Jusqu'ici tout etait de
@@ -117,6 +157,28 @@ export function buildSourceCatalogue(
       limit: 3,
       caveat: PRESSE_CAVEAT,
     }),
+
+    // --- Tier 3 : acteur du marche qu'il commente --------------------------
+    //
+    // Castle Island Ventures publie un podcast hebdomadaire sur le secteur des
+    // actifs numeriques. Utile parce que peu d'acteurs documentent ce marche
+    // avec cette regularite ; problematique parce que le fonds y est investi.
+    //
+    // Le protocole ne tranche pas en ecartant la source, mais en rendant sa
+    // position visible : la mention voyage avec chaque observation (ci-dessous),
+    // le Redacteur recoit la formule a reproduire en gras, et le gate REFUSE de
+    // publier si elle manque du corps (INTEREST_UNDISCLOSED). Une consigne
+    // aurait suffi a l'oublier ; une regle bloquante, non.
+    rssAdapter({
+      id: "castleisland:feed",
+      source: "Castle Island Ventures",
+      url: "https://castleisland.vc/feed/",
+      describes:
+        "Podcast et notes hebdomadaires de Castle Island Ventures sur les actifs numeriques",
+      type: "commentaire-acteur-du-marche",
+      limit: 2,
+      caveat: interestCaveat(interet("castleisland.vc")),
+    }),
   ];
 
   const skipped: SkippedSource[] = [];
@@ -130,13 +192,23 @@ export function buildSourceCatalogue(
         label: "Taux effectif des fonds federaux",
         apiKey: fredKey,
       }),
+      // Bilan de la Reserve federale — le contenu chiffre du H.4.1, publie
+      // chaque semaine. C'est la reponse au flux `h41.xml`, qui n'annonce que
+      // les changements de methode (voir `fed:h41-notices` plus bas).
+      fredAdapter({
+        seriesId: "WALCL",
+        label: "Total de l'actif de la Reserve federale (bilan H.4.1)",
+        apiKey: fredKey,
+        limit: 4,
+      }),
     );
   } else {
     skipped.push({
-      id: "fred:FEDFUNDS",
+      id: "fred:FEDFUNDS+WALCL",
       reason:
-        "FRED_API_KEY absente de l'environnement. Clef gratuite sur " +
-        "https://fredaccount.stlouisfed.org/apikeys — a placer dans .env.",
+        "FRED_API_KEY absente de l'environnement : le taux des fonds federaux " +
+        "ET le bilan de la Reserve federale sont indisponibles. Clef gratuite " +
+        "sur https://fredaccount.stlouisfed.org/apikeys — a placer dans .env.",
     });
   }
 
@@ -209,6 +281,45 @@ export function buildSourceCatalogue(
       id: "opensanctions:search",
       reason:
         "Clef d'API requise (OPENSANCTIONS_API_KEY non geree pour l'instant).",
+    },
+    {
+      id: "fed:h41-notices",
+      reason:
+        "federalreserve.gov/feeds/h41.xml repond (HTTP 200, 120 entrees) mais ne " +
+        "publie PAS le bilan : uniquement les avis de changement de methode du " +
+        "H.4.1. Sa derniere entree datait de 47 jours au 2026-09-02, donc il " +
+        "echouerait a chaque collecte sur la fenetre de fraicheur de 30 jours et " +
+        "ferait porter a chaque article une mention « source indisponible » " +
+        "trompeuse. Les chiffres du H.4.1 sont branches par la serie FRED WALCL.",
+    },
+    {
+      id: "galaxy:research",
+      reason:
+        "Galaxy Digital ne publie aucun flux : /feed, /feed.xml, /rss.xml, " +
+        "/insights/rss et /insights/research/feed rendent tous 404, et les pages " +
+        "d'index n'annoncent aucun flux (verifie le 2026-09-02). Les recuperer " +
+        "demanderait de moissonner des pages applicatives — ce que le pipeline " +
+        "refuse pour Reuters comme pour Dataroma. L'interet de Galaxy reste " +
+        "DECLARE dans protocol/interests.ts : si une URL galaxy.com atteint une " +
+        "claim par un autre chemin, la divulgation en gras est exigee malgre " +
+        "l'absence d'adaptateur.",
+    },
+    {
+      id: "sec-edgar:atom",
+      reason:
+        "Les flux Atom d'EDGAR (browse-edgar ...&output=atom) rendent HTTP 403 " +
+        "sans en-tete `User-Agent` nominatif. La SEC exige une adresse de contact " +
+        "reelle, publiquement declaree, dans chaque requete. En attente de " +
+        "l'adresse que l'editeur accepte de rendre publique.",
+    },
+    {
+      id: "dataroma:portfolios",
+      reason:
+        "Aucun flux : uniquement du HTML applicatif. Dataroma reste utile en " +
+        "REPERAGE (il agrege les 13F en vues de portefeuille qu'EDGAR ne fournit " +
+        "pas), mais la preuve citable reste le depot EDGAR lui-meme — c'est " +
+        "exactement ce que EP-001 organise. A rebrancher si Dataroma expose un " +
+        "flux, ou une fois EDGAR accessible.",
     },
   );
 

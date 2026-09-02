@@ -9,9 +9,14 @@
  * Corollaire : un domaine inconnu du registre est classe tier 3 (secondaire),
  * jamais mieux. On ne presume pas du statut primaire d'une source qu'on n'a pas
  * verifiee. C'est un defaut prudent, pas une approximation.
+ *
+ * CE REGISTRE NE DIT RIEN DE L'INTERET D'UNE SOURCE. Le tier mesure la distance
+ * a la donnee ; savoir si l'auteur est investi dans ce qu'il commente est une
+ * autre question, tenue par `protocol/interests.ts`.
  */
 
 import type { SourceTier } from "../protocol/constants.js";
+import { hostMatchesDomain } from "../protocol/interests.js";
 
 export interface RegisteredSource {
   /** Suffixe de domaine, compare sur l'hote. */
@@ -55,6 +60,11 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "treasury.gov", tier: 1, name: "US Treasury" },
   { domain: "reliefweb.int", tier: 1, name: "ReliefWeb (ONU)" },
   { domain: "boj.or.jp", tier: 1, name: "Banque du Japon" },
+  {
+    domain: "federalreserve.gov",
+    tier: 1,
+    name: "Reserve federale (Board of Governors)",
+  },
   { domain: "impots.gouv.fr", tier: 1, name: "DGFiP" },
   { domain: "economie.gouv.fr", tier: 1, name: "Ministere de l'Economie" },
 
@@ -74,6 +84,11 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "reuters.com", tier: 3, name: "Reuters" },
   { domain: "acleddata.com", tier: 3, name: "ACLED" },
   { domain: "sipri.org", tier: 3, name: "SIPRI" },
+  // Acteurs du marche qu'ils commentent. Le tier 3 dit leur distance a la
+  // donnee ; leur interet est declare separement et sa mention en gras est
+  // exigee par une regle bloquante (protocol/interests.ts).
+  { domain: "castleisland.vc", tier: 3, name: "Castle Island Ventures" },
+  { domain: "galaxy.com", tier: 3, name: "Galaxy Digital" },
 
   // --- Tier 5 : contexte interne ------------------------------------------
   { domain: "media-next-gen.local", tier: 5, name: "Contexte interne" },
@@ -105,8 +120,7 @@ export function classifySource(url: string): SourceClassification {
   const path = parsed.pathname;
 
   for (const entry of SOURCE_REGISTRY) {
-    const hostMatches = host === entry.domain || host.endsWith(`.${entry.domain}`);
-    if (!hostMatches) continue;
+    if (!hostMatchesDomain(host, entry.domain)) continue;
     if (entry.pathPrefix !== undefined && !path.startsWith(entry.pathPrefix)) {
       continue;
     }

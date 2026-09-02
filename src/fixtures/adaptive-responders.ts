@@ -44,6 +44,8 @@ interface CandidatePayload {
 interface ClaimsPayload {
   sujet: string;
   claims_validees_immuables: Array<{ id: string; text: string; type: string }>;
+  /** §4 / EP-002 — deja en gras, a reproduire verbatim. */
+  divulgations_obligatoires: string[];
 }
 
 const parse = <T>(request: { user: string }): T =>
@@ -217,12 +219,19 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
 
   /* --- §5.3 -------------------------------------------------------------- */
   redacteur: (request) => {
-    const { sujet, claims_validees_immuables } = parse<ClaimsPayload>(request);
+    const { sujet, claims_validees_immuables, divulgations_obligatoires } =
+      parse<ClaimsPayload>(request);
+    // §4 / EP-002 — les divulgations arrivent deja en gras et se reproduisent
+    // VERBATIM. Un responder simule qui les paraphraserait se ferait refuser a
+    // la publication, exactement comme un vrai modele : c'est la meme regle qui
+    // s'applique aux deux, et c'est le but.
+    const divulgations = divulgations_obligatoires ?? [];
     return {
       title: `Lecture datee : ${sujet}`,
       body: [
         `Etat des donnees publiques disponibles sur "${sujet}" a la date de collecte.`,
         "",
+        ...(divulgations.length > 0 ? [...divulgations, ""] : []),
         ...claims_validees_immuables.map((c) => `${c.text} [[${c.id}]]`),
         "",
         "Chaque affirmation ci-dessus reprend une donnee publiee par son emetteur. Aucune n'a fait l'objet d'un recoupement entre sources independantes.",

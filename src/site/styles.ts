@@ -171,6 +171,21 @@ article .dateline .revise { color: var(--moyen); }
 .avertissement ul { margin: 0; padding-left: 18px; }
 .avertissement li { margin-bottom: 5px; color: #3d3d3d; }
 
+/* §4 / EP-002 — divulgation d'interet. Placee AVANT les incertitudes et le
+   corps : elle change la facon de lire ce qui suit, elle doit donc etre lue
+   avant. Bordure rouge, la plus forte de la palette : ce n'est pas une reserve
+   de methode parmi d'autres, c'est l'identite de qui parle. */
+.divulgation {
+  border-left: 3px solid var(--faible);
+  background: var(--fond-doux);
+  padding: 14px 18px;
+  margin: 22px 0;
+  font-size: 15px;
+}
+.divulgation .section { margin: 0 0 8px; color: var(--faible); }
+.divulgation ul { margin: 0; padding-left: 18px; }
+.divulgation li { margin-bottom: 5px; color: #3d3d3d; }
+
 .corps p { margin: 0 0 18px; }
 .corps a { color: var(--accent); }
 .corps a.ref {
@@ -256,6 +271,10 @@ article .dateline .revise { color: var(--moyen); }
 
 @media (prefers-color-scheme: dark) {
   .relecture .note { color: #c9c9c9; }
+  .divulgation li { color: #d0d0d0; }
+  /* Le gris fonce des listes reste lisible sur papier blanc, pas sur le fond
+     sombre : sans cette reprise, les incertitudes declarees disparaissaient. */
+  .avertissement li { color: #c4c4c4; }
 }
 
 /* --- Divers ------------------------------------------------------------- */

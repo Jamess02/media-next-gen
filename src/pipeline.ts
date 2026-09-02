@@ -30,6 +30,11 @@ import {
 import { Veilleur, applySelection } from "./agents/veilleur.js";
 import { WEAK_TIERS, WEAK_TIER_DISCLAIMER } from "./protocol/constants.js";
 import {
+  boldDisclosure,
+  disclosureText,
+  interestsForUrls,
+} from "./protocol/interests.js";
+import {
   detectIllegalPromotions,
   detectUngroundedFigures,
   type Violation,
@@ -211,12 +216,31 @@ export class EditorialPipeline {
         c.sources.every((s) => WEAK_TIERS.includes(s.tier)),
     );
 
+    // §4 / EP-002 — sources ayant un interet dans ce qu'elles commentent.
+    //
+    // Le calcul se fait sur les claims RETENUES, pas sur la collecte : une
+    // source ecartee en cours de route n'a rien a divulguer. Les chaines sont
+    // fournies deja en gras au Redacteur, et la meme regle qui les exige les
+    // reconstruit pour verifier (protocol/interests.ts) — il n'y a donc qu'une
+    // seule formulation possible, cote consigne comme cote controle.
+    const interests = interestsForUrls(
+      gate.accepted.flatMap((c) => c.sources.map((s) => s.url)),
+    );
+    if (interests.length > 0) {
+      this.onStage(
+        "redaction",
+        `${interests.length} divulgation(s) d'interet exigee(s) : ` +
+          interests.map((i) => i.name).join(", "),
+      );
+    }
+
     const draft = await this.redacteur.run({
       topic,
       claims: gate.accepted,
       narrativeVsData: analysis.narrative_vs_data,
       publicationCaveats: analysis.publication_caveats,
       requiredDisclaimer: allSourcesWeak ? WEAK_TIER_DISCLAIMER : null,
+      requiredDisclosures: interests.map(boldDisclosure),
     });
     this.onStage("redaction", `"${draft.title}"`);
 
@@ -251,6 +275,15 @@ export class EditorialPipeline {
         (f) => `Source indisponible lors de la collecte : ${f.adapterId} (${f.error}).`,
       ),
       ...(allSourcesWeak ? [WEAK_TIER_DISCLAIMER] : []),
+      // La divulgation est aussi posee ICI, par le pipeline. Celle du corps
+      // depend du Redacteur — le gate la verifie, mais un texte peut toujours
+      // la placer maladroitement. Celle-ci est deterministe.
+      //
+      // SANS LE GRAS : ce champ est rendu en texte echappe (site et markdown
+      // traitent les drapeaux comme de la donnee, pas comme du markdown), donc
+      // les asterisques s'y afficheraient telles quelles. La mise en valeur
+      // visuelle est faite par le gabarit, qui en tire un bloc dedie.
+      ...interests.map(disclosureText),
       // Les ajustements du gate sont des faits sur la SOLIDITE des claims
       // publiees (niveau abaisse, promotion refusee). Ils appartiennent aux
       // incertitudes declarees — pas aux claims ecartees, qui ne contiennent

@@ -18,6 +18,7 @@ import {
   type SourceTier,
 } from "../protocol/constants.js";
 import type { ReviewRecord } from "../editorial/validation.js";
+import { interestsForUrls } from "../protocol/interests.js";
 import type { Article, Claim } from "../protocol/schema.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 import { STYLES } from "./styles.js";
@@ -196,6 +197,33 @@ function renderReview(review: ReviewRecord | undefined): string {
 </div>`;
 }
 
+/**
+ * §4 / EP-002 — divulgation d'interet, en tete d'article.
+ *
+ * Le bloc est reconstruit depuis le registre a chaque generation, pas repris du
+ * texte : un article ne peut donc pas se retrouver en ligne sans lui, meme s'il
+ * a ete produit par une version anterieure du pipeline. Le corps porte la meme
+ * mention aupres de l'affirmation concernee (regle INTEREST_UNDISCLOSED) ;
+ * celle-ci la place avant la lecture, la ou elle change la facon de lire.
+ */
+function renderDisclosures(article: Article): string {
+  const interests = interestsForUrls(
+    article.claims.flatMap((c) => c.sources.map((s) => s.url)),
+  );
+  if (interests.length === 0) return "";
+
+  return `<div class="divulgation">
+  <div class="section">divulgation d'interet</div>
+  <ul>${interests
+    .map(
+      (i) =>
+        `<li><strong>${escapeHtml(i.name)}</strong> — ${escapeHtml(i.nature)}. ` +
+        `A lire comme une prise de position d'un acteur du marche, non comme une donnee neutre.</li>`,
+    )
+    .join("")}</ul>
+</div>`;
+}
+
 export function articlePage(
   article: Article,
   review?: ReviewRecord,
@@ -242,6 +270,7 @@ export function articlePage(
     ${article.revised_at === null ? "" : `&middot; <span class="revise">revise ${horodatage(article.revised_at)}</span>`}
     &middot; ${article.claims.length} claim(s) structurante(s)
   </div>
+  ${renderDisclosures(article)}
   ${avertissement}
   <div class="corps">${corps}</div>
   <div class="section">preuves</div>

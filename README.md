@@ -61,6 +61,7 @@ le tier de la source n'y change rien.
 | §9.5 / EP-006 — pas de fusion silencieuse | `combine()` refuse d'agréger sans pondération explicite ni limites de comparabilité déclarées. | [scoring.ts](src/protocol/scoring.ts) |
 | EP-005 — pas d'illusion de précision | On ne peut pas construire un chiffre sans couverture, fraîcheur, méthode et incertitude. Sinon `qualify()` rend du texte. | [scoring.ts](src/protocol/scoring.ts) |
 | §4 / EP-001 — tiers de sources | Le tier est **dérivé du domaine**, jamais déclaré par un agent. Domaine inconnu ⇒ tier 3, jamais mieux. | [registry.ts](src/sources/registry.ts) |
+| §4 / EP-002 — divulgation d'intérêt | Une source investie dans ce qu'elle commente est reconnue **par son domaine**, et l'article est **refusé** si la mention n'apparaît pas en gras dans le corps. Le Rédacteur reçoit la formule ; il ne peut pas publier sans elle. | [interests.ts](src/protocol/interests.ts) |
 | §9.4 — journalisation | Imposée par la passerelle, pas par la discipline des adaptateurs. Un adaptateur ne peut pas l'oublier. | [gateway.ts](src/sources/gateway.ts) |
 | §9.4 — journal versionné **sans secrets** | Le journal part sur un dépôt public, or FRED, GNews et ACLED transportent leur clé **dans l'URL**. Les URLs et messages d'erreur sont caviardés au point de passage unique du journal, et le caviardage est déclaré. | [redaction.ts](src/audit/redaction.ts) |
 | §9.6 — changelog versionné | Fichier markdown **append-only**. Le module n'expose ni `update` ni `delete`. | [changelog.ts](src/editorial/changelog.ts) |
@@ -180,15 +181,26 @@ Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sort
 | [FRED](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Valeurs `"."` jamais converties en 0 ; clé dans l'URL, caviardée au journal |
 | [OFAC](src/sources/ofac.ts) | 1 | non | Fichier de **deltas** (11 Ko) plutôt que la liste complète (5,6 Mo) ; **aucune identité publiée** |
 | [BoJ](src/sources/rss.ts) | 1 | non | Banque centrale asiatique — les séries branchées ne couvraient que zone euro et États-Unis |
+| [Fed — communiqués](src/sources/rss.ts) | 1 | non | L'émetteur lui-même : décisions, minutes de taux d'escompte, actions d'application |
+| [Fed — bilan (WALCL)](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Les **chiffres** du H.4.1, via FRED — le flux `h41.xml` ne publie que des avis de changement de méthode (voir plus bas) |
 | [Al Jazeera + Haaretz](src/sources/rss.ts) | **3** | non | Premières sources **secondaires** ; mention de statut portée dans chaque observation |
+| [Castle Island Ventures](src/sources/rss.ts) | **3** | non | Acteur **investi** dans ce qu'il commente : divulgation d'intérêt obligatoire en gras, imposée par une règle bloquante |
 
 **Sur les deux titres de presse — c'est une décision éditoriale, pas un branchement.** Ils couvrent les mêmes événements depuis des lignes éditoriales documentées et opposées. Brancher un seul importerait son cadrage sans contrepoids ; les brancher ensemble rend testable ce que le §5.2 demande à l'Analyste — comparer le narratif médiatique aux données observables. **Retirer l'un sans l'autre annulerait cette propriété.**
 
 Leur arrivée débloque aussi ce qui manquait : avec uniquement du tier 1, **EP-001 n'avait rien à arbitrer**. Vérifié depuis : sur 19 observations réelles, 6 secondaires sont signalées comme éclipsées par une source primaire du même lot.
 
+**Sur Castle Island — garder la source, rendre sa position visible.** Un fonds de capital-risque qui commente le marché où il est investi produit une information que peu d'acteurs publient, et une prise de position. Le protocole ne tranche pas en l'écartant : le §4 classe la source en tier 3 (sa distance à la donnée) et un registre distinct déclare son **intérêt** (sa distance à la neutralité) — les deux sont orthogonaux. La mention voyage avec chaque observation dès la collecte, le Rédacteur reçoit la formule exacte à reproduire, et [`INTEREST_UNDISCLOSED`](src/protocol/interests.ts) **refuse la publication** si elle n'apparaît pas dans un même passage en gras du corps. La règle se déclenche aussi quand le texte **nomme** la source sans la lier : reprendre un chiffre « selon Galaxy » est un usage au même titre.
+
+La comparaison de la mention ignore accents et casse. Bloquer un texte conforme au fond pour un accent transformerait une garantie éditoriale en concours de dictée — et la première réaction serait de désactiver la règle.
+
+**Galaxy Digital est déclaré sans être branché.** Aucun flux n'existe (`/feed`, `/feed.xml`, `/rss.xml`, `/insights/rss` : 404 le 2026-09-02) et les moissonner reviendrait à ce que le pipeline refuse pour Reuters comme pour Dataroma. L'intérêt reste **inscrit au registre** : si une URL `galaxy.com` atteint une claim par un autre chemin, la divulgation est exigée malgré l'absence d'adaptateur.
+
+**Le flux `h41.xml` de la Fed n'est pas le bilan.** Il répond (HTTP 200, 120 entrées) mais ne publie que les **avis de changement de méthode** du H.4.1, et sa dernière entrée datait de 47 jours : branché tel quel, il échouerait à chaque collecte sur la fenêtre de fraîcheur et ferait porter à chaque article une mention « source indisponible » trompeuse. Les chiffres sont pris à la série FRED `WALCL`.
+
 **Sur OFAC** — le fichier de deltas contient les noms des personnes désignées. L'adaptateur ne les extrait pas, délibérément : ce pipeline a déjà produit, avec de vrais modèles, un chiffre partiel typé `fait` et un taux inventé. Les mêmes mécanismes appliqués à « X a été sanctionné » ne produiraient pas une erreur de chiffre mais une **imputation nominative fausse**. L'observation porte sur l'action — date, nombre d'entités, programmes, autorité légale — et le lecteur suit le lien vers OFAC pour les identités.
 
-**Sources écartées après mesure** — le [catalogue](src/sources/catalogue.ts) documente sept sources non branchées avec leur motif daté. La plus instructive est **UN Comtrade** : son endpoint public est ouvert, mais la même requête a rendu 500 lignes puis 0 à cinq minutes d'intervalle, et 115 lignes y portent des codes d'agrégat identiques pour des valeurs sans rapport. Une source non reproductible ne peut pas fonder une claim au sens du §2.
+**Sources écartées après mesure** — le [catalogue](src/sources/catalogue.ts) documente treize sources non branchées avec leur motif daté. La plus instructive est **UN Comtrade** : son endpoint public est ouvert, mais la même requête a rendu 500 lignes puis 0 à cinq minutes d'intervalle, et 115 lignes y portent des codes d'agrégat identiques pour des valeurs sans rapport. Une source non reproductible ne peut pas fonder une claim au sens du §2.
 
 **l0g.fr n'est pas une source de ce pipeline**, bien que le §4 le liste en tier 2. C'est une *référence de méthode* : son [agent surface](https://l0g.fr/api/) a inspiré la vérification d'intégrité par empreinte canonique et l'attestation de relecture nommée. Lire sa spécification de canonicalisation a d'ailleurs révélé une faille réelle dans la nôtre.
 
@@ -211,12 +223,15 @@ que le protocole interdit.
 
 ## Ce qui reste à faire
 
-1. **Sources restantes** — trois du §4 attendent une action externe :
-   ReliefWeb (demander un `appname` approuvé), OpenSanctions (clé), GDELT
-   (certificat TLS à corriger côté source). Comtrade et l'OCDE demandent un
-   travail de format supplémentaire (SDMX). Le contrat `SourceAdapter` est
-   stable : chaque ajout est un fichier plus une entrée au
-   [catalogue](src/sources/catalogue.ts).
+1. **Sources restantes** — plusieurs attendent une action externe : **SEC EDGAR**
+   (403 sans `User-Agent` nominatif — la SEC exige une adresse de contact réelle
+   et publiquement déclarée), UCDP (jeton d'accès), ReliefWeb (`appname`
+   approuvé), OpenSanctions (clé), GDELT (certificat TLS à corriger côté
+   source). Comtrade et l'OCDE demandent un travail de format supplémentaire
+   (SDMX). Dataroma se rebranchera **avec** EDGAR, pas à sa place : repérage
+   d'un côté, preuve citable de l'autre — c'est exactement ce qu'organise
+   EP-001. Le contrat `SourceAdapter` est stable : chaque ajout est un fichier
+   plus une entrée au [catalogue](src/sources/catalogue.ts).
 2. **Reprise en collecte** — le §9.3 offre deux issues à une claim rejetée :
    la reformulation (implémentée) ou le **retour en collecte** avec une fenêtre
    élargie (pas encore).

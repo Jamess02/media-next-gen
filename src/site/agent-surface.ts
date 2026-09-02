@@ -36,6 +36,11 @@ import {
   SOURCE_TIERS,
 } from "../protocol/constants.js";
 import type { ReviewRecord } from "../editorial/validation.js";
+import {
+  DECLARED_INTERESTS,
+  disclosureText,
+  interestsForUrls,
+} from "../protocol/interests.js";
 import type { Article } from "../protocol/schema.js";
 import { SITE_NAME, SITE_TAGLINE, siteUrl } from "./templates.js";
 
@@ -130,6 +135,26 @@ export function agentManifest(articles: readonly Article[]): Record<string, unkn
           "L'attestation porte l'empreinte du contenu relu : toute modification " +
           "ulterieure l'invalide et retire l'article du site.",
       },
+      /**
+       * §4 / EP-002 — le registre des interets, expose.
+       *
+       * Sans lui, la divulgation se perdrait a la premiere reutilisation : un
+       * agent tiers qui reprend une claim ne verrait qu'un tier 3 ordinaire.
+       * Le tier dit la distance a la donnee ; ceci dit la distance a la
+       * neutralite, et les deux se transmettent ensemble ou pas du tout.
+       */
+      declaredInterests: {
+        rule:
+          "Une source de cette liste a un interet financier dans ce qu'elle " +
+          "commente. Toute reprise d'une de ses affirmations doit porter la " +
+          "divulgation de maniere visible, comme le fait l'article d'origine.",
+        sources: DECLARED_INTERESTS.map((i) => ({
+          domain: i.domain,
+          name: i.name,
+          nature: i.nature,
+          disclosure: disclosureText(i),
+        })),
+      },
     },
     /**
      * Ce qu'on ne doit PAS faire de ces donnees. Enoncer les interdits est
@@ -143,6 +168,7 @@ export function agentManifest(articles: readonly Article[]): Record<string, unkn
       "Republier une claim en supprimant son type, son niveau de preuve ou la date de ses sources (§8).",
       "Presenter ces analyses comme un conseil d'investissement, une recommandation politique ou electorale (EP-007).",
       "Presenter un article dont l'attestation de relecture ne correspond plus au contenu.",
+      "Republier une claim adossee a une source a interet declare en supprimant la divulgation (§4, EP-002).",
     ],
     caveat:
       "Les articles sont produits par un pipeline multi-agents. Le typage des " +
@@ -176,6 +202,12 @@ export function articlesSurface(
         // contestable. En transmettre un resume serait le rendre invérifiable.
         ...a,
         canonicalUrl: `${base}/articles/${encodeURIComponent(a.id)}.html`,
+        // §4 / EP-002 — calcule depuis les sources de l'article, pas repris du
+        // texte : un consommateur n'a pas a analyser le corps pour savoir qui
+        // parle avec quel interet.
+        declared_interests: interestsForUrls(
+          a.claims.flatMap((c) => c.sources.map((s) => s.url)),
+        ).map((i) => ({ name: i.name, domain: i.domain, disclosure: disclosureText(i) })),
         review:
           review === undefined
             ? null

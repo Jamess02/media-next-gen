@@ -35,6 +35,12 @@ export interface RedacteurInput {
   publicationCaveats: readonly string[];
   /** §4 — mention a placer en tete si tout repose sur du tier 3/4. */
   requiredDisclaimer: string | null;
+  /**
+   * §4 / EP-002 — divulgations d'interet, deja en gras, a reproduire
+   * VERBATIM aupres de chaque affirmation issue de la source concernee.
+   * Le gate refuse l'article si l'une d'elles manque.
+   */
+  requiredDisclosures: readonly string[];
 }
 
 const INSTRUCTIONS = `
@@ -65,6 +71,22 @@ veux qualifier une intensite, fais-le en toutes lettres, sans chiffre.
 
 Si une mention obligatoire t'est fournie (\`requiredDisclaimer\`), place-la en
 PREMIERE ligne du corps et reprends-la dans \`uncertainty_flags\`.
+
+DIVULGATIONS D'INTERET (\`divulgations_obligatoires\`) — non negociable.
+
+Certaines sources ont un interet financier dans ce qu'elles commentent. Chaque
+chaine de cette liste t'est fournie DEJA EN GRAS (\`**...**\`). Tu dois :
+- la reproduire telle quelle, gras compris, sans la reformuler ni la resumer ;
+- la placer AUPRES de l'affirmation qui utilise cette source — pas en note
+  finale, pas dans un bloc de mentions legales ;
+- la repeter a chaque endroit du corps ou tu t'appuies sur cette source ou la
+  nommes.
+Le controle de publication verifie la presence de chaque chaine dans un meme
+passage en gras. Une divulgation manquante bloque l'article : il n'y a pas de
+version degradee ou l'on publie sans elle.
+
+Ces sources se citent comme des prises de position d'acteurs du marche, jamais
+comme des donnees neutres.
 `;
 
 export class Redacteur extends Agent<RedacteurInput, RedacteurOutput> {
@@ -80,6 +102,7 @@ export class Redacteur extends Agent<RedacteurInput, RedacteurOutput> {
       ecart_narratif_vs_donnees: input.narrativeVsData,
       reserves_de_publication: input.publicationCaveats,
       mention_obligatoire: input.requiredDisclaimer,
+      divulgations_obligatoires: input.requiredDisclosures,
     });
   }
 }

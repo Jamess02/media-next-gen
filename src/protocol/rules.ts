@@ -20,6 +20,14 @@ import {
   WEAK_TIER_DISCLAIMER,
   type ClaimType,
 } from "./constants.js";
+import {
+  DECLARED_INTERESTS,
+  boldDisclosure,
+  interestsForUrls,
+  isDisclosedInBold,
+  mentionsInterest,
+  type DeclaredInterest,
+} from "./interests.js";
 import type { Article, Claim } from "./schema.js";
 
 export type Severity = "blocking" | "warning";
@@ -226,6 +234,60 @@ function ruleWeakTierDisclosure(article: Article): Violation[] {
   ];
 }
 
+/**
+ * §4 / EP-002 — une source qui a un interet dans ce qu'elle commente doit etre
+ * signalee en gras, dans le corps, chaque fois qu'elle est citee ou utilisee.
+ *
+ * DEUX DECLENCHEURS, PARCE QU'IL Y A DEUX FACONS D'UTILISER UNE SOURCE
+ *
+ *  1. une claim cite une URL du domaine — l'usage est trace ;
+ *  2. le texte NOMME la source sans la lier — un chiffre repris « selon Galaxy »
+ *     est un usage exactement au meme titre, et c'est le cas que la seule
+ *     inspection des URLs laisserait passer.
+ *
+ * L'exigence porte sur le CORPS parce que c'est ce que le lecteur lit en
+ * continu. La mention figure aussi dans les incertitudes declarees, mais celle-
+ * la est posee par le pipeline : elle prouve que la divulgation existe, pas
+ * qu'elle accompagne l'affirmation a l'endroit ou elle est faite.
+ *
+ * BLOQUANT, ET NON AVERTISSEMENT. Un avertissement laisserait publier l'article
+ * sans la mention, ce qui est precisement le seul resultat inacceptable : le
+ * lecteur aurait deja lu la prise de position d'un acteur du marche en croyant
+ * lire une donnee.
+ */
+function ruleInterestDisclosed(article: Article): Violation[] {
+  const cited = interestsForUrls(
+    article.claims.flatMap((c) => c.sources.map((s) => s.url)),
+  );
+
+  // Le titre et les textes de claims comptent comme mention : la divulgation
+  // reste due meme si le corps se contente d'y renvoyer.
+  const surface = [
+    article.title,
+    article.body,
+    ...article.claims.map((c) => c.text),
+  ].join("\n");
+  const named = DECLARED_INTERESTS.filter((i) => mentionsInterest(surface, i));
+
+  const domains = new Set([...cited, ...named].map((i) => i.domain));
+  const required: DeclaredInterest[] = DECLARED_INTERESTS.filter((i) =>
+    domains.has(i.domain),
+  );
+
+  return required
+    .filter((interest) => !isDisclosedInBold(article.body, interest))
+    .map((interest) => ({
+      rule: "INTEREST_UNDISCLOSED",
+      clause: "§4 / EP-002",
+      severity: "blocking" as const,
+      message:
+        `${interest.name} est cite ou utilise, sans divulgation d'interet en gras ` +
+        `dans le corps. Inserer, aupres de l'affirmation concernee : ` +
+        `${boldDisclosure(interest)}`,
+      path: "body",
+    }));
+}
+
 /** §7 — le corps doit referencer chaque claim, et ne referencer que des claims reelles. */
 function ruleBodyReferences(article: Article): Violation[] {
   const declared = new Set(article.claims.map((c) => c.id));
@@ -349,6 +411,7 @@ const DOCUMENT_RULES = [
   ruleFactNeedsPrimarySource,
   ruleFactContradictedByOwnText,
   ruleWeakTierDisclosure,
+  ruleInterestDisclosed,
   ruleBodyReferences,
   ruleRevisionDate,
   ruleRevisionIsLogged,
