@@ -22,6 +22,8 @@ npm run dev -- --real-sources "inflation en zone euro"
 npm run dev -- --providers                        # état de chaque fournisseur
 npm run dev -- --provider=groq --real-sources "politique monétaire"
 
+# Ou fixer le fournisseur par défaut dans .env : MEDIA_PROVIDER=groq
+
 # Corriger un article publié (§6)
 npm run dev -- revise <article-id> --type=factuelle "ce qui change"
 
@@ -145,9 +147,23 @@ le gate au lieu de l'appliquer.
 
 Tous partagent la même API compatible OpenAI, donc [le même client](src/llm/openai-compatible-client.ts). Ajouter un fournisseur = trois champs dans [providers.ts](src/llm/providers.ts).
 
-**Le schéma JSON est envoyé deux fois, et c'est nécessaire.** Mesuré sur Ollama Cloud : aucun modèle du palier gratuit n'applique réellement `response_format`. Le modèle ne voit alors jamais la forme attendue et improvise des noms de champs plausibles. Le client place donc aussi le JSON Schema **dans le prompt**. Sans cette copie, le pipeline échouait au premier agent ; avec elle, il passe sans aucune réparation.
+### Lequel choisir : **`groq`**, mesuré
 
-**`ollama` ≠ `ollama-cloud`** — le premier est le serveur local (aucune clé), le second le service hébergé (clé `OLLAMA_API_KEY`). Sur son palier gratuit, seuls `gpt-oss:20b/120b`, `gemma4:31b` et `nemotron-3-nano` répondent ; les gros modèles renvoient HTTP 402.
+Comparaison sur le **même modèle** (`gpt-oss-120b`) et le même sujet :
+
+| | Groq | Ollama Cloud |
+|---|---|---|
+| Modèles respectant `json_schema` | **4 / 4 testables** | **0 / 5** |
+| Latence par appel | 0,2 – 1,3 s | 2 – 40 s |
+| Modèle indisponible | HTTP 400 explicite | — |
+| Modèles bridés | aucun | la plupart en 402 (abonnement) |
+| Quota | 8 000 tokens/min (serré) | plus permissif |
+
+Le point décisif : **l'application du schéma est une propriété du fournisseur, pas du modèle.** Le même `gpt-oss-120b` respecte `response_format` chez Groq et l'ignore chez Ollama Cloud. Le client s'adapte via `enforcesSchema` — quand le fournisseur n'applique rien, il duplique le schéma dans le prompt, faute de quoi le modèle ne le voit jamais ; quand il l'applique, cette copie est inutile et double le poids de la requête.
+
+Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sortie, ce qui fait durer une exécution 2 à 3 minutes, l'essentiel en attente de quota. Le client gère l'attente et la journalise.
+
+**`ollama` ≠ `ollama-cloud`** — le premier est le serveur local (aucune clé), le second le service hébergé (clé `OLLAMA_API_KEY`). Sur son palier gratuit, seuls `gpt-oss:20b/120b`, `gemma4:31b` et `nemotron-3-nano` répondent.
 
 **Ce qu'un fournisseur gratuit valide — et ce qu'il ne valide pas.** Il exerce la mécanique du pipeline (prompts, schémas, gate, journalisation), pas la qualité éditoriale. Et il **n'exerce pas** [anthropic-client.ts](src/llm/anthropic-client.ts), qui reste le seul fichier du projet jamais exécuté contre son API réelle. Le CLI l'affiche à chaque exécution, pour que personne ne prenne un article produit par un 8B local pour une validation du pipeline complet.
 
