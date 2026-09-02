@@ -21,6 +21,14 @@ import { fileURLToPath } from "node:url";
 
 import { ArticleSchema, type Article } from "../protocol/schema.js";
 import { verifyReview, type ReviewRecord } from "../editorial/validation.js";
+import {
+  agentManifest,
+  articlesSurface,
+  canonicalJsonHash,
+  integritySurface,
+  sha256,
+  type SurfaceEntry,
+} from "./agent-surface.js";
 import { renderFeed, renderRobots, renderSitemap } from "./feed.js";
 import {
   documentPage,
@@ -165,12 +173,48 @@ export async function buildSite(
 
   await ecrire("404.html", notFoundPage());
 
+  // --- Surface machine ---------------------------------------------------
+  // §0 : un article doit pouvoir etre relu et conteste « par un humain OU PAR
+  // UN AUTRE AGENT ». Le HTML ne tient que la premiere moitie de la promesse.
+  await mkdir(join(siteDir, "api"), { recursive: true });
+
+  const surfaceArticles = articlesSurface(articles, reviews);
+  const manifeste = agentManifest(articles);
+
+  await ecrire("api/articles.json", JSON.stringify(surfaceArticles, null, 2));
+  await ecrire("agents.json", JSON.stringify(manifeste, null, 2));
+
   // Flux et fichiers d'indexation : ce qui distingue un media d'un dossier de
   // pages. Ils portent des URLs ABSOLUES — un lecteur de flux ne sait pas d'ou
   // vient le document qu'il lit.
   await ecrire("feed.xml", renderFeed(articles));
   await ecrire("sitemap.xml", renderSitemap(articles));
   await ecrire("robots.txt", renderRobots());
+
+  // Empreintes, en DERNIER : elles portent sur les surfaces deja ecrites.
+  // `integrity.json` ne s'inclut evidemment pas lui-meme.
+  const empreintes: SurfaceEntry[] = [];
+  for (const chemin of pages) {
+    const type = chemin.endsWith(".json")
+      ? "application/json"
+      : chemin.endsWith(".xml")
+        ? "application/xml"
+        : chemin.endsWith(".txt")
+          ? "text/plain"
+          : "text/html";
+    const contenu = await readFile(join(siteDir, chemin), "utf8");
+    empreintes.push({
+      path: `/${chemin}`,
+      mediaType: type,
+      // Les surfaces JSON sont hachees sous forme canonique, `generated`
+      // exclu ; le reste sur les octets servis.
+      sha256:
+        type === "application/json"
+          ? canonicalJsonHash(JSON.parse(contenu) as Record<string, unknown>)
+          : sha256(contenu),
+    });
+  }
+  await ecrire("integrity.json", JSON.stringify(integritySurface(empreintes), null, 2));
 
   // Empeche GitHub Pages de traiter la sortie avec Jekyll, qui ignorerait les
   // dossiers commencant par un underscore et reecrirait certaines pages.

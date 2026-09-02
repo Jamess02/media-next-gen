@@ -178,9 +178,8 @@ Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sort
 | [Eurostat](src/sources/eurostat.ts) | 1 | non | Index JSON-stat à plat : l'adaptateur **refuse de deviner** si une dimension n'est pas figée |
 | [USGS](src/sources/usgs.ts) | 1 | non | Solution `automatic` signalée comme préliminaire et révisable (§5.2) |
 | [FRED](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Valeurs `"."` jamais converties en 0 ; clé dans l'URL, caviardée au journal |
-| [l0g.fr](src/sources/l0g.ts) | 2 | non | Instantané périmé signalé selon le seuil publié par la source ; **attribution CC BY portée dans le texte de la claim** |
 
-**Sur l0g.fr** — aucune clé, aucun compte, donc aucun mécanisme de facturation possible ; CC BY 4.0 est une licence, pas un abonnement. Son manifeste `agents.json` publie des usages interdits qui recoupent notre protocole presque mot pour mot : *« transformer une inférence ou un scénario en fait observé »* (§3/§8), *« présenter les scores 0-100 comme probabilités comparables »* (EP-006), *« renormaliser un score quand des familles de sources manquent »* (EP-005). Trois des quatre sont déjà appliqués par nos règles déterministes — par construction, pas par promesse. C'est aussi pourquoi l'adaptateur **n'ingère pas leurs scores de risque** : les publier exigerait de porter leur méthodologie et leurs limites, ce que le format d'observation ne transporte pas.
+**l0g.fr n'est pas une source de ce pipeline**, bien que le §4 le liste en tier 2. C'est une *référence de méthode* : son [agent surface](https://l0g.fr/api/) a inspiré la vérification d'intégrité par empreinte canonique et l'attestation de relecture nommée. Lire sa spécification de canonicalisation a d'ailleurs révélé une faille réelle dans la nôtre.
 
 Sans clé FRED, la source est **déclarée absente** plutôt que silencieusement omise (EP-003). Trois autres sources du §4 sont documentées comme non branchées, avec leur motif — dont GDELT, dont le certificat TLS a expiré : contourner la vérification TLS exposerait le pipeline à une interception.
 
@@ -241,7 +240,17 @@ régénérés à chaque exécution).
 
 Parti pris visuel inspiré de [l0g.fr](https://l0g.fr) : noir sur blanc, dense, entrées numérotées, marqueurs de section `//`. Là où l0g signale un risque de marché, on signale ce que le protocole rend obligatoire — niveau de preuve (§2), type de claim (§3), tier de source (§4). Chaque `[[claim-1]]` du corps devient un **lien vers sa preuve** : la promesse du §0 rendue cliquable.
 
-Le site produit 8 pages types : index, une page par article, protocole, changelog, 404, plus **flux RSS**, sitemap et robots.txt. L'attestation de relecture est **affichée sur chaque article** — nom du relecteur, date, observation, et l'empreinte du contenu relu : une relecture qui reste dans un fichier JSON n'engage personne aux yeux du public.
+**Une surface machine, parce que le §0 le demande.** Le protocole promet qu'un article puisse être *« relu, contesté et corrigé — par un humain ou par un **autre agent** »*. Du HTML ne tient que la première moitié. Le site publie donc :
+
+| | |
+|---|---|
+| `/agents.json` | ce qu'expose le site, l'échelle de preuve du §2, les types du §3, et **ce qu'il ne faut pas faire de ces données** |
+| `/api/articles.json` | le contrat §7 **intégral** — un résumé rendrait l'article invérifiable |
+| `/integrity.json` | empreintes canoniques de chaque surface, `generated` exclu pour qu'un changement d'empreinte signale un vrai changement |
+
+Méthode empruntée à l'[agent surface de l0g.fr](https://l0g.fr/api/) — qui n'est pas une source de ce pipeline, mais dont l'approche est la bonne : publier ce qu'on affirme dans une forme qu'une machine peut contester.
+
+Le site produit par ailleurs : index, une page par article, protocole, changelog, 404, plus **flux RSS**, sitemap et robots.txt. L'attestation de relecture est **affichée sur chaque article** — nom du relecteur, date, observation, et l'empreinte du contenu relu : une relecture qui reste dans un fichier JSON n'engage personne aux yeux du public.
 
 Le flux ne diffuse **que le résumé**, jamais le corps complet : un article de ce média ne se lit pas sans ses preuves, et niveaux, tiers et sources datées ne survivraient pas au passage en flux.
 

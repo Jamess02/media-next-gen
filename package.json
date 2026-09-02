@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "site": "tsx src/cli.ts site",
+    "preview": "tsx src/cli.ts preview",
     "studio": "tsx src/cli.ts studio",
     "build": "tsc",
     "typecheck": "tsc --noEmit",

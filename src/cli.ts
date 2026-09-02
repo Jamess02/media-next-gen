@@ -18,6 +18,7 @@ import { PublicationRefused } from "./agents/editeur.js";
 import { AuditLog } from "./audit/audit-log.js";
 import { validateArticle } from "./editorial/validation.js";
 import { buildSite } from "./site/build.js";
+import { serveSite } from "./site/serve.js";
 import { startStudio } from "./studio/server.js";
 import { ArticleNotFound, reviseArticle } from "./editorial/revision.js";
 import { ADAPTIVE_RESPONDERS } from "./fixtures/adaptive-responders.js";
@@ -66,6 +67,7 @@ type Command =
   | { kind: "list-providers" }
   | { kind: "validate"; articleId: string; reviewer: string; note?: string }
   | { kind: "build-site"; drafts: boolean }
+  | { kind: "preview"; port: number; drafts: boolean }
   | { kind: "studio"; port: number }
   | { kind: "error"; message: string };
 
@@ -124,6 +126,14 @@ function parseArgs(argv: readonly string[]): Command {
   }
 
   if (positional[0] === "site") return { kind: "build-site", drafts };
+  if (positional[0] === "preview") {
+    const port = Number(positional[1]);
+    return {
+      kind: "preview",
+      port: Number.isFinite(port) && port > 0 ? port : 4321,
+      drafts,
+    };
+  }
   if (positional[0] === "studio") {
     const port = Number(positional[1]);
     return { kind: "studio", port: Number.isFinite(port) && port > 0 ? port : 5173 };
@@ -357,6 +367,34 @@ async function buildSiteCommand(drafts: boolean): Promise<void> {
   console.log("Ouvrir : " + join(r.siteDir, "index.html"));
 }
 
+async function previewCommand(port: number, drafts: boolean): Promise<void> {
+  // Toujours regenerer avant de servir : relire une version obsolete du site
+  // serait pire que ne pas le relire.
+  const build = drafts
+    ? await buildSite({
+        outputDir: join(process.cwd(), "output"),
+        requireReview: false,
+      })
+    : await buildSite();
+
+  const url = await serveSite({ root: build.siteDir, port });
+
+  console.log(`SITE EN LIGNE — ${url}`);
+  console.log("");
+  console.log(`  ${build.published} article(s) publie(s), ${build.pages.length} page(s)`);
+  if (drafts) {
+    console.log("  ! APERCU DE BROUILLONS — articles NON relus.");
+  }
+  for (const rej of build.rejected) {
+    console.log(`  ! ecarte : ${rej.file} — ${rej.reason}`);
+  }
+  console.log("");
+  console.log("  Pages    : /  /protocole.html  /changelog.html");
+  console.log("  Machines : /feed.xml  /sitemap.xml  /robots.txt");
+  console.log("");
+  console.log("Ecoute sur la boucle locale uniquement. Ctrl+C pour arreter.");
+}
+
 async function studioCommand(port: number): Promise<void> {
   const url = await startStudio({ port });
   console.log(`STUDIO — interface de pilotage sur ${url}`);
@@ -386,6 +424,8 @@ async function main(): Promise<void> {
       return validateCommand(command);
     case "build-site":
       return buildSiteCommand(command.drafts);
+    case "preview":
+      return previewCommand(command.port, command.drafts);
     case "studio":
       return studioCommand(command.port);
     case "revise":
