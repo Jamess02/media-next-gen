@@ -72,8 +72,26 @@ export const FREE_PROVIDERS: Record<string, ProviderSpec> = {
     envKey: null,
     signup: "https://ollama.com/download",
     notes:
-      "Local, aucune clef, aucune limite. Demande l'installation d'Ollama et " +
-      "le telechargement d'un modele (plusieurs Go).",
+      "Ollama LOCAL, aucune clef, aucune limite. Demande l'installation d'Ollama " +
+      "et le telechargement d'un modele (plusieurs Go). A ne pas confondre avec " +
+      "`ollama-cloud`, qui est le service heberge.",
+  },
+  "ollama-cloud": {
+    baseUrl: "https://ollama.com/v1",
+    // Mesure sur le palier gratuit : gpt-oss:120b repond en ~2 s avec du
+    // contenu exploitable. gemma4:31b est plus rapide mais plus faible ;
+    // nemotron-3-super rend un contenu vide (raisonnement non expose) et
+    // nemotron-3-ultra depasse le delai.
+    defaultModel: "gpt-oss:120b",
+    envKey: "OLLAMA_API_KEY",
+    signup: "https://ollama.com/settings/keys",
+    notes:
+      "Service heberge. IMPORTANT : le palier gratuit ne couvre que quelques " +
+      "modeles (gpt-oss:20b et 120b, gemma4:31b, nemotron-3-nano). Les gros " +
+      "modeles (qwen3.5:397b, mistral-large-3, glm-5.x, kimi, deepseek) " +
+      "repondent HTTP 402 sans abonnement. Aucun modele gratuit teste ne " +
+      "respecte `json_schema` : la boucle de reparation du client est donc " +
+      "indispensable ici.",
   },
   lmstudio: {
     baseUrl: "http://127.0.0.1:1234/v1",

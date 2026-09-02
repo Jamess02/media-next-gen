@@ -40,6 +40,14 @@ vraies sources — et produit de vrais artefacts : `output/`, `audit/`,
 Partout où le protocole dit « ne doit jamais », l'implémentation cherche à rendre
 la violation **impossible** plutôt qu'à la détecter après coup.
 
+**Ce principe a été vérifié sur une exécution réelle.** Avec un vrai modèle
+(`gpt-oss:120b`), l'Analyste a typé `fait` au niveau 3 une claim dont le texte
+disait lui-même *« le solde observé sur le sous-ensemble de 3 partenaires
+déclarants »*. Le Fact-checker LLM ne l'a pas relevé. C'est une règle
+déterministe — [`FACT_ADMITS_INCOMPLETENESS`](src/protocol/rules.ts) — qui a
+refusé la publication : sous le §3, un chiffre partiel est une `estimation`, et
+le tier de la source n'y change rien.
+
 | Clause | Approche | Où |
 |---|---|---|
 | §9.3 — gate bloquant | Le fact-checker LLM ne peut que **dégrader** : ses sorties sont bornées par du code (clamp monotone). Un modèle défaillant ou manipulé ne peut pas ouvrir le gate. | [fact-checker.ts](src/agents/fact-checker.ts) |
@@ -125,11 +133,15 @@ le gate au lieu de l'appliquer.
 | `--provider=` | Coût | Clé |
 |---|---|---|
 | `mock` *(défaut)* | nul | — |
-| `groq`, `gemini`, `mistral`, `openrouter` | **palier gratuit** | oui, sans carte bancaire |
+| `groq`, `gemini`, `mistral`, `openrouter`, `ollama-cloud` | **palier gratuit** | oui, sans carte bancaire |
 | `ollama`, `lmstudio` | gratuit, local | — |
 | `anthropic` | facturé | oui |
 
-Les quatre fournisseurs gratuits et les deux serveurs locaux partagent la même API compatible OpenAI, donc [le même client](src/llm/openai-compatible-client.ts). Ajouter un fournisseur = trois champs dans [providers.ts](src/llm/providers.ts).
+Tous partagent la même API compatible OpenAI, donc [le même client](src/llm/openai-compatible-client.ts). Ajouter un fournisseur = trois champs dans [providers.ts](src/llm/providers.ts).
+
+**Le schéma JSON est envoyé deux fois, et c'est nécessaire.** Mesuré sur Ollama Cloud : aucun modèle du palier gratuit n'applique réellement `response_format`. Le modèle ne voit alors jamais la forme attendue et improvise des noms de champs plausibles. Le client place donc aussi le JSON Schema **dans le prompt**. Sans cette copie, le pipeline échouait au premier agent ; avec elle, il passe sans aucune réparation.
+
+**`ollama` ≠ `ollama-cloud`** — le premier est le serveur local (aucune clé), le second le service hébergé (clé `OLLAMA_API_KEY`). Sur son palier gratuit, seuls `gpt-oss:20b/120b`, `gemma4:31b` et `nemotron-3-nano` répondent ; les gros modèles renvoient HTTP 402.
 
 **Ce qu'un fournisseur gratuit valide — et ce qu'il ne valide pas.** Il exerce la mécanique du pipeline (prompts, schémas, gate, journalisation), pas la qualité éditoriale. Et il **n'exerce pas** [anthropic-client.ts](src/llm/anthropic-client.ts), qui reste le seul fichier du projet jamais exécuté contre son API réelle. Le CLI l'affiche à chaque exécution, pour que personne ne prenne un article produit par un 8B local pour une validation du pipeline complet.
 

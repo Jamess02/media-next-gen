@@ -45,7 +45,17 @@ export interface OpenAiCompatibleConfig {
   audit: AuditLog;
   timeoutMs?: number;
   maxTokens?: number;
-  /** Tentatives de reparation apres un echec de validation. 1 par defaut. */
+  /**
+   * Tentatives de reparation apres un echec de validation.
+   *
+   * 2 par defaut, et pas 1 : mesure sur les modeles du palier gratuit d'Ollama
+   * Cloud, une seule reprise ne suffit pas. Ils convergent, mais par etapes —
+   * une premiere correction rapproche la forme sans l'atteindre.
+   *
+   * Le plafond reste bas a dessein : un modele qui n'y arrive pas en trois
+   * essais n'y arrivera pas en dix, et chaque tentative renvoie tout
+   * l'historique, donc coute de plus en plus cher.
+   */
   repairAttempts?: number;
 }
 
@@ -69,16 +79,44 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
       audit: config.audit,
       timeoutMs: config.timeoutMs ?? 120_000,
       maxTokens: config.maxTokens ?? 8192,
-      repairAttempts: config.repairAttempts ?? 1,
+      repairAttempts: config.repairAttempts ?? 2,
       ...(config.apiKey === undefined ? {} : { apiKey: config.apiKey }),
     };
   }
 
   async structured<T>(request: LlmRequest<T>): Promise<T> {
     const jsonSchema = z.toJSONSchema(request.schema);
+
+    // Le schema est place DANS le prompt, en plus de `response_format`.
+    //
+    // Ce n'est pas une redondance : plusieurs fournisseurs gratuits acceptent
+    // `response_format` sans l'appliquer. Le modele ne voit alors jamais la
+    // forme attendue et improvise des noms de champs plausibles — constate sur
+    // Ollama Cloud, ou aucun modele du palier gratuit ne respecte le schema
+    // transmis par le seul `response_format`.
+    //
+    // Quand le fournisseur applique reellement la contrainte, cette copie est
+    // inoffensive : elle dit la meme chose.
     const messages: ChatMessage[] = [
       { role: "system", content: request.system },
-      { role: "user", content: request.user },
+      {
+        role: "user",
+        content: [
+          request.user,
+          "",
+          "## Forme exacte de ta reponse",
+          "",
+          "Reponds par un unique objet JSON conforme a ce JSON Schema :",
+          "",
+          JSON.stringify(jsonSchema, null, 2),
+          "",
+          "Regles imperatives :",
+          "- Tous les champs marques `required` doivent etre presents, meme vides.",
+          "- N'ajoute AUCUNE clef absente du schema : elles seront rejetees.",
+          "- Respecte exactement les valeurs des champs `enum`.",
+          "- Aucun texte avant ou apres le JSON, aucun bloc de code markdown.",
+        ].join("\n"),
+      },
     ];
 
     // `strict` n'est pas supporte partout : on commence par le format le plus

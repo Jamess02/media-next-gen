@@ -94,6 +94,62 @@ describe("§3 / EP-001 — un fait exige une source primaire", () => {
   });
 });
 
+describe("§3 — un fait ne peut pas admettre sa propre incompletude", () => {
+  // Regle nee d'une execution reelle : un modele avait type `fait` au niveau 3
+  // une claim disant "le solde observe sur le sous-ensemble de trois
+  // partenaires declarants". Source tier 1, donc les autres regles passaient.
+  const withText = (text: string, type: "fait" | "estimation" = "fait") =>
+    blocking(article({ claims: [claim({ text, type })] })).map((v) => v.rule);
+
+  it("bloque le cas reel observe", () => {
+    expect(
+      withText(
+        "Le solde commercial observe sur le sous-ensemble de 3 partenaires declarants pour juillet 2026 est de -569 MUSD.",
+      ),
+    ).toContain("FACT_ADMITS_INCOMPLETENESS");
+  });
+
+  it("bloque un fait declarant des donnees partielles", () => {
+    expect(withText("Les donnees partielles montrent une hausse.")).toContain(
+      "FACT_ADMITS_INCOMPLETENESS",
+    );
+  });
+
+  it("bloque un fait qui se dit estime ou provisoire", () => {
+    for (const text of [
+      "Le deficit est estime a 4 milliards.",
+      "Chiffre provisoire de 2,3 %.",
+      "Solution preliminaire, magnitude 6,4.",
+    ]) {
+      expect(withText(text), text).toContain("FACT_ADMITS_INCOMPLETENESS");
+    }
+  });
+
+  it("bloque un denombrement partiel explicite", () => {
+    expect(withText("Solde calcule sur 3 sur 11 partenaires.")).toContain(
+      "FACT_ADMITS_INCOMPLETENESS",
+    );
+    expect(withText("Base sur 3/11 declarants.")).toContain(
+      "FACT_ADMITS_INCOMPLETENESS",
+    );
+  });
+
+  it("n'affecte PAS une claim correctement typee estimation", () => {
+    // C'est le typage correct pour ce contenu : la regle ne doit pas le punir.
+    expect(
+      withText("Le solde partiel est estime a -569 MUSD.", "estimation"),
+    ).not.toContain("FACT_ADMITS_INCOMPLETENESS");
+  });
+
+  it("laisse passer un fait reellement ferme", () => {
+    expect(
+      withText(
+        "La banque centrale a releve son taux directeur de 25 points de base le 12 aout 2026.",
+      ),
+    ).not.toContain("FACT_ADMITS_INCOMPLETENESS");
+  });
+});
+
 describe("§4 — declaration des sources faibles", () => {
   const weakClaim = claim({
     type: "inférence",

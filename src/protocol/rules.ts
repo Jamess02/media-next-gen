@@ -144,6 +144,57 @@ function ruleFactNeedsPrimarySource(article: Article): Violation[] {
 }
 
 /**
+ * §3 — un `fait` dont le TEXTE admet son incompletude se contredit lui-meme.
+ *
+ * Regle ajoutee apres une execution reelle du pipeline : un modele avait type
+ * `fait` au niveau 3 une claim dont le texte disait "le solde observe sur le
+ * sous-ensemble de trois partenaires declarants". Le fact-checker LLM ne l'a
+ * pas vu, et `FACT_NEEDS_PRIMARY_SOURCE` a laisse passer parce que la source
+ * (UN Comtrade) est bien de tier 1.
+ *
+ * Or le §3 est clair : un chiffre "calcule ou approche a partir de donnees
+ * incompletes" est une `estimation`. Le tier de la source ne change rien a la
+ * nature de la donnee.
+ *
+ * La verification est deterministe : on n'a pas besoin de comprendre le texte,
+ * seulement de constater qu'il declare lui-meme sa propre incompletude.
+ */
+const INCOMPLETENESS_MARKERS: readonly RegExp[] = [
+  /\bpartiel(?:le|les|s)?\b/i,
+  /\bsous[-‑\s]ensemble\b/i,
+  /\bincomplet(?:e|es|s)?\b/i,
+  /\bestim[ée](?:e|es|s)?\b/i,
+  /\bestimation\b/i,
+  /\bprojection\b/i,
+  /\bprovisoire\b/i,
+  /\bpr[ée]liminaire\b/i,
+  /\bprovenant d'un [ée]chantillon\b/i,
+  // "3 partenaires sur 11", "3/11 declarants" : un denombrement partiel.
+  /\b\d+\s*(?:\/|sur)\s*\d+\s+(?:partenaires?|d[ée]clarants?|pays|[ée]tats)\b/i,
+];
+
+function ruleFactContradictedByOwnText(article: Article): Violation[] {
+  return article.claims.flatMap((claim, i) => {
+    if (claim.type !== "fait") return [];
+    const marker = INCOMPLETENESS_MARKERS.find((re) => re.test(claim.text));
+    if (marker === undefined) return [];
+
+    return [
+      {
+        rule: "FACT_ADMITS_INCOMPLETENESS",
+        clause: "§3",
+        severity: "blocking" as const,
+        message:
+          `La claim "${claim.id}" est typee "fait" alors que son propre texte declare ` +
+          `une donnee incomplete ou approchee (${marker.source}). Le §3 en fait une ` +
+          `"estimation" : le tier de la source ne change pas la nature de la donnee.`,
+        path: `claims[${i}].type`,
+      },
+    ];
+  });
+}
+
+/**
  * §4 — si TOUTES les claims structurantes reposent uniquement sur du tier 3/4,
  * l'article doit le declarer explicitement en tete.
  */
@@ -296,6 +347,7 @@ const DOCUMENT_RULES = [
   ruleEvidenceLevelIsBacked,
   ruleClaimCeiling,
   ruleFactNeedsPrimarySource,
+  ruleFactContradictedByOwnText,
   ruleWeakTierDisclosure,
   ruleBodyReferences,
   ruleRevisionDate,
