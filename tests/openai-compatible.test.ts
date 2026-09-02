@@ -232,6 +232,41 @@ describe("quota et troncature", () => {
     expect(calls()).toHaveLength(2);
   });
 
+  it("ne reessaie PAS quand la requete depasse le quota TOTAL", async () => {
+    // Un quota temporairement epuise se recharge ; une requete plus grosse que
+    // le quota entier ne passera jamais. Attendre trois fois pour un echec
+    // certain coutait plusieurs minutes.
+    const { calls } = stubResponses([
+      {
+        ok: false,
+        status: 413,
+        body: "on tokens per minute (TPM): Limit 8000, Requested 8834, please reduce your message size",
+      },
+    ]);
+    const error = await client()
+      .structured(request)
+      .catch((e: unknown) => e);
+
+    expect(calls()).toHaveLength(1);
+    // Le message doit dire quoi faire, pas seulement que ca a echoue.
+    expect(String(error)).toMatch(/depasse a elle seule le quota/);
+    expect(String(error)).toMatch(/Attendre ne changera rien/);
+  });
+
+  it("reessaie quand le quota est temporairement epuise", async () => {
+    // Meme code d'erreur, situation opposee : la demande tient dans la limite.
+    const { calls } = stubResponses([
+      {
+        ok: false,
+        status: 429,
+        body: "TPM: Limit 8000, Requested 500. try again in 0.05s",
+      },
+      { body: completion(JSON.stringify({ verdict: "ok", note: "x" })) },
+    ]);
+    await client().structured(request);
+    expect(calls()).toHaveLength(2);
+  });
+
   it("ne reessaie PAS un 413 signifiant une charge utile trop grosse", async () => {
     // Rejouer a l'identique echouerait indefiniment.
     const { calls } = stubResponses([

@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { runEditorialGate, detectIllegalPromotions } from "../src/protocol/rules.js";
+import {
+  runEditorialGate,
+  detectIllegalPromotions,
+  detectUngroundedFigures,
+} from "../src/protocol/rules.js";
+import type { Claim } from "../src/protocol/schema.js";
 import { article, claim } from "./helpers.js";
 
 const blocking = (a: Parameters<typeof runEditorialGate>[0]) =>
@@ -248,6 +253,69 @@ describe("EP-007 — absence de recommandation", () => {
         article({ body: "Le taux directeur passe a 4,50 %. [[claim-1]]" }),
       ).passed,
     ).toBe(true);
+  });
+});
+
+describe("§2 — ancrage des chiffres dans les sources", () => {
+  const sources = [
+    "Inflation, consumer prices (annual %) — Euro area : 2.47 (2025). Serie mise a jour le 2026-07-13.",
+    "Taux effectif des fonds federaux — FEDFUNDS : 3.63 au 2026-07-01.",
+    "Taux directeur releve de 4.25 a 4.50 le 12 aout 2026.",
+  ];
+
+  const check = (text: string, type: Claim["type"] = "fait") =>
+    detectUngroundedFigures([claim({ text, type })], sources);
+
+  it("signale le cas reel observe : un taux BCE absent des sources", () => {
+    // Cas produit par un vrai modele : deux sources tier 1 reelles, mais
+    // aucune ne documente le taux de la BCE. Le "3 %" venait de nulle part.
+    const v = check(
+      "Si l'inflation reste proche de 2 %, la BCE pourrait maintenir son taux autour de 7,5 % cette annee.",
+      "scénario",
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]?.rule).toBe("UNGROUNDED_FIGURE");
+    expect(v[0]?.message).toMatch(/7\.5/);
+  });
+
+  it("accepte un chiffre repris tel quel d'une source", () => {
+    expect(check("L'inflation etait de 2,47 % en zone euro.")).toHaveLength(0);
+  });
+
+  it("accepte un arrondi a la precision annoncee", () => {
+    // "environ 2,5" doit passer : c'est 2.47 arrondi au dixieme.
+    expect(check("L'inflation etait d'environ 2,5 %.")).toHaveLength(0);
+  });
+
+  it("accepte un ecart entre deux valeurs de sources", () => {
+    // 4.50 - 4.25 = 0.25 : une variation est une lecture legitime.
+    expect(check("Le taux a progresse de 0,25 point.")).toHaveLength(0);
+  });
+
+  it("n'examine PAS les estimations", () => {
+    // §3 : une estimation est par definition un chiffre calcule ou approche.
+    expect(
+      check("Le solde est estime a -569 MUSD.", "estimation"),
+    ).toHaveLength(0);
+  });
+
+  it("gere les separateurs de milliers", () => {
+    const v = detectUngroundedFigures(
+      [claim({ text: "Le montant atteint 1 234,5 milliards." })],
+      ["Montant observe : 1234.5 milliards."],
+    );
+    expect(v).toHaveLength(0);
+  });
+
+  it("reste un avertissement, jamais un blocage", () => {
+    // Un blocage sur ce controle rendrait le pipeline inutilisable : les
+    // conversions d'unite et les seuils hypothetiques sont legitimes.
+    const v = check("Un seuil de 99,9 % serait atteint.", "scénario");
+    expect(v[0]?.severity).toBe("warning");
+  });
+
+  it("ne signale rien sans source exploitable", () => {
+    expect(detectUngroundedFigures([claim({ text: "Valeur de 42." })], [])).toHaveLength(0);
   });
 });
 

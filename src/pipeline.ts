@@ -29,7 +29,11 @@ import {
 } from "./agents/redacteur-en-chef.js";
 import { Veilleur, applySelection } from "./agents/veilleur.js";
 import { WEAK_TIERS, WEAK_TIER_DISCLAIMER } from "./protocol/constants.js";
-import { detectIllegalPromotions, type Violation } from "./protocol/rules.js";
+import {
+  detectIllegalPromotions,
+  detectUngroundedFigures,
+  type Violation,
+} from "./protocol/rules.js";
 import { ArticleSchema, type Article } from "./protocol/schema.js";
 import { SourceGateway } from "./sources/gateway.js";
 import type { SourceAdapter } from "./sources/types.js";
@@ -217,6 +221,23 @@ export class EditorialPipeline {
     this.onStage("redaction", `"${draft.title}"`);
 
     /* --- Assemblage du contrat §7 ---------------------------------------- */
+    // §2 — chiffres non ancres dans les sources retenues.
+    //
+    // Le controle se fait ICI parce que le pipeline dispose encore des resumes
+    // d'observations, absents du contrat §7. L'alternative aurait ete de faire
+    // circuler les sources jusqu'a l'article, ce qui aurait modifie le contrat
+    // pour un besoin de diagnostic.
+    const ungrounded = detectUngroundedFigures(
+      gate.accepted,
+      retained.map((e) => e.resume),
+    );
+    if (ungrounded.length > 0) {
+      this.onStage(
+        "redaction",
+        `${ungrounded.length} claim(s) citant des chiffres absents des sources`,
+      );
+    }
+
     const now = new Date().toISOString();
     const uncertaintyFlags = [
       ...draft.uncertainty_flags,
@@ -236,6 +257,9 @@ export class EditorialPipeline {
       // que des rejets (§7). Confondre les deux ferait annoncer au lecteur
       // comme "retiree" une claim qu'il lit dans l'article.
       ...gate.adjustments.map((a) => `Ajustement du fact-checker — ${a}`),
+      // Le lecteur doit voir qu'un chiffre n'est pas adosse aux sources
+      // citees : c'est une information sur la solidite de ce qu'il lit.
+      ...ungrounded.map((v) => v.message),
       // Une reformulation de sauvetage change la nature de ce que le lecteur
       // lit : il doit le savoir (EP-003), pas seulement les logs.
       ...(reformulationAttempted

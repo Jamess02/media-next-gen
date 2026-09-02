@@ -66,10 +66,12 @@ export const FREE_PROVIDERS: Record<string, ProviderSpec> = {
     // Verifie : les quatre modeles testables ont respecte le schema du premier
     // coup, et un modele non supporte est refuse par un 400 explicite.
     enforcesSchema: true,
-    // 8000 TPM, dont ~4000 d'entree : la reservation de sortie doit tenir dans
-    // ce qui reste. Suffisant pour les sorties du pipeline, et une troncature
+    // 8000 TPM, reservation de sortie incluse. L'entree varie de ~4000 tokens
+    // (sources simulees) a ~5500 (six sources reelles), le protocole pesant a
+    // lui seul ~3000 dans chaque appel. 2400 laisse donc de la marge dans les
+    // deux cas, tout en couvrant les sorties du pipeline — et une troncature
     // serait signalee explicitement plutot que devinee.
-    maxTokens: 3500,
+    maxTokens: 2400,
     notes:
       "Palier gratuit, inference tres rapide (moins d'une seconde par appel). " +
       "Seul fournisseur gratuit teste qui APPLIQUE reellement `response_format` : " +

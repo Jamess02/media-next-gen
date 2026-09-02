@@ -369,6 +369,141 @@ export function runEditorialGate(article: Article): GateResult {
 }
 
 /* -------------------------------------------------------------------------
+ * §2 — ancrage des chiffres dans les sources
+ * ---------------------------------------------------------------------- */
+
+const MOIS =
+  "janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre";
+
+/**
+ * Retire les dates avant extraction : ce ne sont pas des mesures.
+ *
+ * Sans cela, "le 12 aout" fournit la valeur 12, et le controle d'ecart la
+ * combine a n'importe quelle autre pour "expliquer" un chiffre invente —
+ * constate en test : 12 - 4,50 = 7,5 validait un taux sorti de nulle part.
+ * Avec assez de nombres parasites, presque toute valeur devient justifiable.
+ */
+function stripDates(text: string): string {
+  return text
+    .replace(/\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?/g, " ")
+    .replace(new RegExp(`\\d{1,2}\\s+(?:${MOIS})\\s+\\d{4}`, "gi"), " ")
+    .replace(new RegExp(`\\d{1,2}\\s+(?:${MOIS})`, "gi"), " ")
+    .replace(/\b(?:19|20)\d{2}\b/g, " ");
+}
+
+/**
+ * Extrait les valeurs numeriques d'un texte, dates exclues.
+ *
+ * Gere la virgule decimale francaise et les separateurs de milliers (espace
+ * normale, insecable ou fine), sans quoi "1 234,5" donnerait 1, 234 et 5.
+ */
+function extractNumbers(text: string): Array<{ value: number; decimals: number }> {
+  const cleaned = stripDates(text).replace(/(\d)[\s  ](?=\d{3}(?!\d))/g, "$1");
+  const out: Array<{ value: number; decimals: number }> = [];
+
+  for (const match of cleaned.matchAll(/-?\d+(?:[.,]\d+)?/g)) {
+    const literal = match[0];
+    const value = Number(literal.replace(",", "."));
+    if (!Number.isFinite(value)) continue;
+    const separator = /[.,]/.exec(literal);
+    out.push({
+      value,
+      decimals: separator === null ? 0 : literal.length - literal.indexOf(separator[0]) - 1,
+    });
+  }
+  return out;
+}
+
+/**
+ * Un chiffre est considere comme ancre s'il apparait dans une source, s'il en
+ * est l'arrondi a la precision annoncee, ou s'il est l'ecart entre deux
+ * valeurs de sources.
+ *
+ * Les trois cas correspondent a des usages editoriaux legitimes :
+ *  - reprise directe ("2,47 %") ;
+ *  - arrondi ("environ 2,5 %" a partir de 2,47) ;
+ *  - variation ("une hausse de 0,25 point" entre 4,25 et 4,50).
+ */
+function isGrounded(
+  figure: { value: number; decimals: number },
+  sourceValues: readonly number[],
+): boolean {
+  const factor = 10 ** figure.decimals;
+  const arrondi = (v: number): number => Math.round(v * factor) / factor;
+
+  if (sourceValues.some((v) => arrondi(v) === figure.value)) return true;
+
+  for (const a of sourceValues) {
+    for (const b of sourceValues) {
+      if (a === b) continue;
+      if (arrondi(Math.abs(a - b)) === Math.abs(figure.value)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * §2 — signale les chiffres d'une claim qui n'apparaissent dans AUCUNE source
+ * retenue.
+ *
+ * NE DE L'OBSERVATION D'UN CAS REEL. Un modele a produit la claim :
+ *
+ *   "la BCE pourrait maintenir son taux directeur autour de 3 %"
+ *
+ * adossee a deux sources tier 1 — l'inflation Eurostat et le taux des fonds
+ * federaux americains — dont AUCUNE ne documente le taux de la BCE. Le "3 %"
+ * sortait de nulle part. Toutes les regles deterministes existantes passaient :
+ * les sources sont reelles, primaires, liees et datees. Le defaut est qu'elles
+ * ne parlent pas du sujet de la claim.
+ *
+ * POURQUOI UN AVERTISSEMENT ET NON UN BLOCAGE
+ *
+ * Un chiffre peut legitimement ne pas figurer tel quel dans une source :
+ * conversion d'unite (points de pourcentage vers points de base), agregation,
+ * ou simple mention d'un seuil hypothetique dans un scenario. Bloquer sur ces
+ * cas rendrait le pipeline inutilisable, et un gate qu'on desactive ne protege
+ * plus rien. Le role de cette regle est de porter le chiffre a l'attention du
+ * relecteur, pas de trancher a sa place.
+ *
+ * Les `estimation` sont exclues : le §3 les definit comme des chiffres
+ * "calcules ou approches", donc produire une valeur absente des sources est
+ * precisement leur fonction.
+ */
+export function detectUngroundedFigures(
+  claims: readonly Claim[],
+  sourceTexts: readonly string[],
+): Violation[] {
+  const sourceValues = sourceTexts
+    .flatMap(extractNumbers)
+    .map((f) => f.value);
+  if (sourceValues.length === 0) return [];
+
+  return claims.flatMap((claim) => {
+    if (claim.type === "estimation") return [];
+
+    const orphelins = extractNumbers(claim.text)
+      .filter((f) => !isGrounded(f, sourceValues))
+      .map((f) => f.value);
+
+    if (orphelins.length === 0) return [];
+
+    return [
+      {
+        rule: "UNGROUNDED_FIGURE",
+        clause: "§2",
+        severity: "warning" as const,
+        message:
+          `La claim "${claim.id}" (${claim.type}) cite ${orphelins.length} valeur(s) ` +
+          `absente(s) des sources retenues : ${orphelins.join(", ")}. ` +
+          `Verifier que les sources citees soutiennent bien ces chiffres — le §2 ` +
+          `exige qu'une source soutienne precisement l'affirmation.`,
+        path: `claims.${claim.id}.text`,
+      },
+    ];
+  });
+}
+
+/* -------------------------------------------------------------------------
  * §3 / §8 — interdiction de promotion
  * ---------------------------------------------------------------------- */
 

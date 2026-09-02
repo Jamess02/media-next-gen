@@ -282,7 +282,15 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
 
       const attente = retryDelayMs(response, text, essai);
       if (attente === undefined || essai >= this.config.rateLimitRetries) {
-        const detail = `HTTP ${response.status} — ${text.slice(0, 300)}`;
+        const trop = /Limit\s+(\d+)[,\s]+Requested\s+(\d+)/i.exec(text);
+        const conseil =
+          trop === null
+            ? ""
+            : ` — la requete depasse a elle seule le quota du palier ` +
+              `(${trop[2]} demandes pour ${trop[1]} autorises). Reduire maxTokens ` +
+              `pour ce fournisseur, limiter le nombre de sources, ou passer a un ` +
+              `palier superieur. Attendre ne changera rien.`;
+        const detail = `HTTP ${response.status}${conseil} — ${text.slice(0, 200)}`;
         await this.record(request, dateObserved, { body, response: text }, detail);
         throw new ProviderHttpError(
           this.config.providerName,
@@ -365,6 +373,22 @@ function retryDelayMs(
     ((response.status === 413 || response.status === 503) &&
       /rate.?limit|tokens per minute|TPM|quota|too many requests/i.test(body));
   if (!quota) return undefined;
+
+  // Distinction essentielle : un quota TEMPORAIREMENT epuise se recharge, une
+  // requete plus grosse que le quota TOTAL ne passera jamais. Les fournisseurs
+  // annoncent les deux avec le meme code d'erreur.
+  //
+  // Sans ce controle, le client attendait trois fois pour une requete
+  // structurellement impossible — plusieurs minutes perdues avant un echec
+  // certain.
+  const bornes = /Limit\s+(\d+)[,\s]+Requested\s+(\d+)/i.exec(body);
+  if (bornes !== null) {
+    const limite = Number(bornes[1]);
+    const demande = Number(bornes[2]);
+    if (Number.isFinite(limite) && Number.isFinite(demande) && demande > limite) {
+      return undefined;
+    }
+  }
 
   // Le fournisseur sait mieux que nous quand reessayer.
   const entete = response.headers.get("retry-after");
