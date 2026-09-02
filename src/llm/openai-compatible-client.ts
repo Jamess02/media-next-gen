@@ -42,6 +42,22 @@ export interface OpenAiCompatibleConfig {
   model: string;
   /** Omise pour un serveur local (Ollama, LM Studio). */
   apiKey?: string;
+  /**
+   * Le fournisseur APPLIQUE-t-il reellement `response_format` ?
+   *
+   * Quand il ne l'applique pas (constate sur Ollama Cloud), le modele ne voit
+   * jamais la forme attendue : il faut lui montrer le schema dans le prompt.
+   * Quand il l'applique (constate sur Groq), cette copie est inutile — et elle
+   * double le poids de la requete, ce qui fait franchir la limite de tokens
+   * par minute des paliers gratuits.
+   *
+   * Faux par defaut : l'hypothese prudente est qu'un fournisseur inconnu
+   * n'applique rien. Une requete un peu grosse coute moins cher qu'un pipeline
+   * qui echoue au premier agent.
+   */
+  enforcesSchema?: boolean;
+  /** Nouvelles tentatives apres un refus pour quota. 3 par defaut. */
+  rateLimitRetries?: number;
   audit: AuditLog;
   timeoutMs?: number;
   maxTokens?: number;
@@ -80,6 +96,8 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
       timeoutMs: config.timeoutMs ?? 120_000,
       maxTokens: config.maxTokens ?? 8192,
       repairAttempts: config.repairAttempts ?? 2,
+      enforcesSchema: config.enforcesSchema ?? false,
+      rateLimitRetries: config.rateLimitRetries ?? 3,
       ...(config.apiKey === undefined ? {} : { apiKey: config.apiKey }),
     };
   }
@@ -101,21 +119,23 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
       { role: "system", content: request.system },
       {
         role: "user",
-        content: [
-          request.user,
-          "",
-          "## Forme exacte de ta reponse",
-          "",
-          "Reponds par un unique objet JSON conforme a ce JSON Schema :",
-          "",
-          JSON.stringify(jsonSchema, null, 2),
-          "",
-          "Regles imperatives :",
-          "- Tous les champs marques `required` doivent etre presents, meme vides.",
-          "- N'ajoute AUCUNE clef absente du schema : elles seront rejetees.",
-          "- Respecte exactement les valeurs des champs `enum`.",
-          "- Aucun texte avant ou apres le JSON, aucun bloc de code markdown.",
-        ].join("\n"),
+        content: this.config.enforcesSchema
+          ? request.user
+          : [
+              request.user,
+              "",
+              "## Forme exacte de ta reponse",
+              "",
+              "Reponds par un unique objet JSON conforme a ce JSON Schema :",
+              "",
+              JSON.stringify(jsonSchema),
+              "",
+              "Regles imperatives :",
+              "- Tous les champs marques `required` doivent etre presents, meme vides.",
+              "- N'ajoute AUCUNE clef absente du schema : elles seront rejetees.",
+              "- Respecte exactement les valeurs des champs `enum`.",
+              "- Aucun texte avant ou apres le JSON, aucun bloc de code markdown.",
+            ].join("\n"),
       },
     ];
 
@@ -161,9 +181,26 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
         throw error;
       }
 
+      // Une reponse tronquee produit du JSON invalide, donc partait en boucle
+      // de reparation avec un message trompeur. Le dire explicitement : le
+      // remede est d'augmenter max_tokens, pas de reformuler la demande.
+      const finish = finishReason(payload);
+      if (finish === "length") {
+        throw new LlmContractError(
+          request.agent,
+          request.schemaName,
+          `reponse tronquee a ${this.config.maxTokens} tokens de sortie ` +
+            `(finish_reason=length) : sortie partielle non publiable`,
+        );
+      }
+
       const content = extractContent(payload);
       if (content === undefined) {
-        lastError = "reponse sans contenu textuel exploitable";
+        // Cas observe sur les modeles de raisonnement : tout le budget part
+        // dans un champ `reasoning` et `content` revient vide.
+        lastError =
+          "reponse sans contenu textuel exploitable" +
+          (hasReasoning(payload) ? " (raisonnement non expose par le fournisseur)" : "");
         continue;
       }
 
@@ -207,45 +244,66 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
 
   private async post<T>(body: unknown, request: LlmRequest<T>): Promise<unknown> {
     const url = `${this.config.baseUrl}/chat/completions`;
-    const dateObserved = new Date().toISOString();
+    let response: Response | undefined;
+    let text = "";
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        signal: AbortSignal.timeout(this.config.timeoutMs),
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          // Pas d'en-tete Authorization pour un serveur local sans clef.
-          ...(this.config.apiKey === undefined
-            ? {}
-            : { authorization: `Bearer ${this.config.apiKey}` }),
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (error) {
-      const cause = error instanceof Error ? error : new Error(String(error));
-      const detail =
-        cause.name === "TimeoutError" || cause.name === "AbortError"
-          ? `pas de reponse en ${this.config.timeoutMs} ms`
-          : `echec reseau — ${cause.message}`;
-      await this.record(request, dateObserved, { body }, detail);
-      throw new ProviderHttpError(this.config.providerName, url, detail);
-    }
+    // Les paliers gratuits imposent des quotas serres — Groq plafonne a 8000
+    // tokens PAR MINUTE, et le pipeline emet cinq appels portant chacun le
+    // protocole. Attendre est la reponse correcte : le quota se recharge.
+    for (let essai = 0; ; essai += 1) {
+      const dateObserved = new Date().toISOString();
 
-    const text = await response.text();
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          signal: AbortSignal.timeout(this.config.timeoutMs),
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+            // Pas d'en-tete Authorization pour un serveur local sans clef.
+            ...(this.config.apiKey === undefined
+              ? {}
+              : { authorization: `Bearer ${this.config.apiKey}` }),
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        const detail =
+          cause.name === "TimeoutError" || cause.name === "AbortError"
+            ? `pas de reponse en ${this.config.timeoutMs} ms`
+            : `echec reseau — ${cause.message}`;
+        await this.record(request, dateObserved, { body }, detail);
+        throw new ProviderHttpError(this.config.providerName, url, detail);
+      }
 
-    if (!response.ok) {
-      const detail = `HTTP ${response.status} — ${text.slice(0, 300)}`;
-      await this.record(request, dateObserved, { body, response: text }, detail);
-      throw new ProviderHttpError(
-        this.config.providerName,
-        url,
-        detail,
-        response.status,
+      text = await response.text();
+      if (response.ok) break;
+
+      const attente = retryDelayMs(response, text, essai);
+      if (attente === undefined || essai >= this.config.rateLimitRetries) {
+        const detail = `HTTP ${response.status} — ${text.slice(0, 300)}`;
+        await this.record(request, dateObserved, { body, response: text }, detail);
+        throw new ProviderHttpError(
+          this.config.providerName,
+          url,
+          detail,
+          response.status,
+        );
+      }
+
+      // L'attente est journalisee : un pipeline qui ralentit sans explication
+      // ressemble a un pipeline en panne.
+      await this.record(
+        request,
+        dateObserved,
+        { body, response: text },
+        `quota atteint (HTTP ${response.status}) — nouvelle tentative dans ${Math.round(attente / 1000)} s`,
       );
+      await new Promise((resolve) => setTimeout(resolve, attente));
     }
+
+    const dateObserved = new Date().toISOString();
 
     const payload = tryParseJson(text);
     if (payload === undefined) {
@@ -286,6 +344,65 @@ export class ProviderHttpError extends Error {
     super(`${provider} : ${detail}`);
     this.name = "ProviderHttpError";
   }
+}
+
+/**
+ * Delai avant nouvelle tentative, ou `undefined` si l'echec n'est pas un
+ * probleme de quota.
+ *
+ * 429 est la reponse standard. Groq emploie aussi 413 pour un depassement de
+ * tokens par minute — d'ou la lecture du corps : un 413 signifiant reellement
+ * "charge utile trop grosse" ne doit PAS etre rejoue, il echouerait a
+ * l'identique indefiniment.
+ */
+function retryDelayMs(
+  response: Response,
+  body: string,
+  essai: number,
+): number | undefined {
+  const quota =
+    response.status === 429 ||
+    ((response.status === 413 || response.status === 503) &&
+      /rate.?limit|tokens per minute|TPM|quota|too many requests/i.test(body));
+  if (!quota) return undefined;
+
+  // Le fournisseur sait mieux que nous quand reessayer.
+  const entete = response.headers.get("retry-after");
+  if (entete !== null) {
+    const secondes = Number(entete);
+    if (Number.isFinite(secondes) && secondes >= 0) {
+      return Math.min(secondes * 1000, 70_000);
+    }
+    const date = Date.parse(entete);
+    if (!Number.isNaN(date)) {
+      return Math.min(Math.max(date - Date.now(), 0), 70_000);
+    }
+  }
+
+  // Certains fournisseurs indiquent le delai dans le corps ("try again in 6.5s").
+  const indique = /in\s+([\d.]+)\s*s/i.exec(body);
+  if (indique?.[1] !== undefined) {
+    return Math.min(Number(indique[1]) * 1000 + 500, 70_000);
+  }
+
+  // Repli : progression jusqu'a un peu plus d'une minute, car les quotas les
+  // plus courants se rechargent a la minute.
+  return [5_000, 20_000, 65_000][essai] ?? 65_000;
+}
+
+function finishReason(payload: unknown): string | undefined {
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return undefined;
+  const reason = (choices[0] as { finish_reason?: unknown }).finish_reason;
+  return typeof reason === "string" ? reason : undefined;
+}
+
+function hasReasoning(payload: unknown): boolean {
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return false;
+  const reasoning = (choices[0] as { message?: { reasoning?: unknown } }).message
+    ?.reasoning;
+  return typeof reasoning === "string" && reasoning.length > 0;
 }
 
 /** `choices[0].message.content` dans la forme OpenAI. */

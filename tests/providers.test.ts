@@ -40,8 +40,12 @@ describe("resolution", () => {
   });
 
   it("construit un client pour un fournisseur gratuit avec sa clef", () => {
+    // Compare au catalogue plutot qu'a un nom en dur : les fournisseurs
+    // retirent et renomment leurs modeles, et ce test n'a pas a casser pour
+    // autant. Le premier essai avec Groq a d'ailleurs echoue parce que le
+    // modele par defaut du preset n'existait plus sur le compte.
     const { client } = resolve("groq", { GROQ_API_KEY: "k" });
-    expect(client.modelId).toBe("groq/llama-3.3-70b-versatile");
+    expect(client.modelId).toBe(`groq/${FREE_PROVIDERS["groq"]?.defaultModel}`);
   });
 
   it("respecte MEDIA_MODEL", () => {
@@ -57,7 +61,7 @@ describe("resolution", () => {
     // Sans normalisation, `?? defaut` rendrait la chaine vide et le pipeline
     // demanderait un modele sans nom.
     const { client } = resolve("groq", { GROQ_API_KEY: "k", MEDIA_MODEL: "" });
-    expect(client.modelId).toBe("groq/llama-3.3-70b-versatile");
+    expect(client.modelId).toBe(`groq/${FREE_PROVIDERS["groq"]?.defaultModel}`);
   });
 
   it("traite un MEDIA_MODEL fait d'espaces comme absent", () => {

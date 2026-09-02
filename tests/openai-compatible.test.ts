@@ -53,7 +53,12 @@ const request = {
 
 /** Enchaine des reponses HTTP successives. */
 function stubResponses(
-  responses: Array<{ ok?: boolean; status?: number; body: unknown | string }>,
+  responses: Array<{
+    ok?: boolean;
+    status?: number;
+    body: unknown | string;
+    headers?: Record<string, string>;
+  }>,
 ): { calls: () => unknown[][] } {
   let index = 0;
   const fn = vi.fn(async () => {
@@ -62,6 +67,9 @@ function stubResponses(
     return {
       ok: r?.ok ?? true,
       status: r?.status ?? 200,
+      // Le client lit `retry-after` sur les refus pour quota : le bouchon doit
+      // exposer une interface Headers, meme vide.
+      headers: { get: (nom: string) => r?.headers?.[nom.toLowerCase()] ?? null },
       text: async () =>
         typeof r?.body === "string" ? r.body : JSON.stringify(r?.body),
     };
@@ -154,6 +162,109 @@ describe("reparation bornee", () => {
   it("expose l'erreur de validation dans le message final", async () => {
     stubResponses([{ body: completion(JSON.stringify({ verdict: "nope" })) }]);
     await expect(client(0).structured(request)).rejects.toThrow(/verdict/);
+  });
+});
+
+describe("schema dans le prompt, ou non", () => {
+  it("duplique le schema quand le fournisseur n'applique rien", async () => {
+    // Constate sur Ollama Cloud : sans cette copie, le modele ne voit jamais
+    // la forme attendue et improvise des noms de champs.
+    const { calls } = stubResponses([
+      { body: completion(JSON.stringify({ verdict: "ok", note: "x" })) },
+    ]);
+    await client().structured(request);
+
+    const body = JSON.parse(String((calls()[0]?.[1] as { body: string }).body));
+    expect(body.messages[1].content).toMatch(/JSON Schema/);
+  });
+
+  it("omet la copie quand le fournisseur applique la contrainte", async () => {
+    // Constate sur Groq : la copie y est inutile et double le poids de la
+    // requete, ce qui fait franchir la limite de tokens par minute.
+    const c = new OpenAiCompatibleLlmClient({
+      providerName: "test",
+      baseUrl: "https://api.test.local/v1",
+      model: "m",
+      apiKey: "k",
+      audit: new AuditLog({ dir: workDir }),
+      enforcesSchema: true,
+    });
+    const { calls } = stubResponses([
+      { body: completion(JSON.stringify({ verdict: "ok", note: "x" })) },
+    ]);
+    await c.structured(request);
+
+    const body = JSON.parse(String((calls()[0]?.[1] as { body: string }).body));
+    expect(body.messages[1].content).toBe("entree");
+    // Le schema reste transmis par le canal officiel.
+    expect(body.response_format.json_schema.schema).toBeDefined();
+  });
+});
+
+describe("quota et troncature", () => {
+  it("attend puis reessaie apres un refus pour quota", async () => {
+    const { calls } = stubResponses([
+      {
+        ok: false,
+        status: 429,
+        body: "rate limit exceeded, try again in 0.05s",
+      },
+      { body: completion(JSON.stringify({ verdict: "ok", note: "x" })) },
+    ]);
+    expect(await client().structured(request)).toEqual({
+      verdict: "ok",
+      note: "x",
+    });
+    expect(calls()).toHaveLength(2);
+  });
+
+  it("reessaie sur un 413 signalant un depassement de tokens par minute", async () => {
+    // Groq emploie 413 pour un depassement TPM, la ou 429 serait attendu.
+    const { calls } = stubResponses([
+      {
+        ok: false,
+        status: 413,
+        body: "Request too large ... on tokens per minute (TPM): Limit 8000, try again in 0.05s",
+      },
+      { body: completion(JSON.stringify({ verdict: "ok", note: "x" })) },
+    ]);
+    await client().structured(request);
+    expect(calls()).toHaveLength(2);
+  });
+
+  it("ne reessaie PAS un 413 signifiant une charge utile trop grosse", async () => {
+    // Rejouer a l'identique echouerait indefiniment.
+    const { calls } = stubResponses([
+      { ok: false, status: 413, body: "Payload too large" },
+    ]);
+    await expect(client().structured(request)).rejects.toThrow(/HTTP 413/);
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("signale une reponse tronquee au lieu de tenter de la reparer", async () => {
+    // Une troncature produit du JSON invalide : sans ce controle, le client
+    // partait en reparation avec un message trompeur. Le remede est
+    // d'augmenter max_tokens, pas de reformuler.
+    const { calls } = stubResponses([
+      {
+        body: {
+          choices: [
+            { message: { content: '{"verdict":"o' }, finish_reason: "length" },
+          ],
+        },
+      },
+    ]);
+    await expect(client().structured(request)).rejects.toThrow(/tronquee/);
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("signale un contenu vide du a un raisonnement non expose", async () => {
+    stubResponses([
+      { body: { choices: [{ message: { content: "", reasoning: "je reflechis" } }] } },
+    ]);
+    await expect(client(0).structured(request)).rejects.toThrow(
+      /raisonnement non expose/,
+    );
   });
 });
 

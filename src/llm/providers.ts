@@ -34,15 +34,49 @@ export interface ProviderSpec {
   /** Ou obtenir une clef gratuite. Affiche quand elle manque. */
   signup: string;
   notes: string;
+  /**
+   * Le fournisseur applique-t-il REELLEMENT `response_format` ?
+   *
+   * Propriete MESUREE, pas supposee. Quand elle est fausse, le client duplique
+   * le schema dans le prompt — sans quoi le modele ne le voit jamais. Quand
+   * elle est vraie, cette copie est inutile et double le poids de la requete,
+   * ce qui fait franchir les limites de tokens par minute des paliers gratuits.
+   *
+   * Absente = non verifie = traite comme faux. L'hypothese prudente est
+   * qu'un fournisseur inconnu n'applique rien.
+   */
+  enforcesSchema?: boolean;
+  /**
+   * Plafond de tokens de sortie.
+   *
+   * Compte dans le quota par minute chez plusieurs fournisseurs : Groq
+   * plafonne a 8000 TPM et y inclut la RESERVATION de sortie, pas seulement
+   * les tokens reellement produits. Avec ~4000 tokens d'entree, un max_tokens
+   * a 8192 fait donc echouer chaque requete avant meme d'etre traitee.
+   */
+  maxTokens?: number;
 }
 
 export const FREE_PROVIDERS: Record<string, ProviderSpec> = {
   groq: {
     baseUrl: "https://api.groq.com/openai/v1",
-    defaultModel: "llama-3.3-70b-versatile",
+    defaultModel: "openai/gpt-oss-120b",
     envKey: "GROQ_API_KEY",
     signup: "https://console.groq.com/keys",
-    notes: "Palier gratuit genereux, inference tres rapide, modeles 70B.",
+    // Verifie : les quatre modeles testables ont respecte le schema du premier
+    // coup, et un modele non supporte est refuse par un 400 explicite.
+    enforcesSchema: true,
+    // 8000 TPM, dont ~4000 d'entree : la reservation de sortie doit tenir dans
+    // ce qui reste. Suffisant pour les sorties du pipeline, et une troncature
+    // serait signalee explicitement plutot que devinee.
+    maxTokens: 3500,
+    notes:
+      "Palier gratuit, inference tres rapide (moins d'une seconde par appel). " +
+      "Seul fournisseur gratuit teste qui APPLIQUE reellement `response_format` : " +
+      "les quatre modeles testables ont respecte le schema du premier coup. " +
+      "Un modele non supporte est refuse par un HTTP 400 explicite, jamais " +
+      "silencieusement ignore. Alternatives : openai/gpt-oss-20b, " +
+      "qwen/qwen3.8-27b, qwen/qwen3.6-27b.",
   },
   gemini: {
     // Google expose un endpoint compatible OpenAI en plus de son API native.
@@ -212,6 +246,8 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
       providerName: input.provider,
       baseUrl: spec.baseUrl,
       model: overrideModel ?? spec.defaultModel,
+      enforcesSchema: spec.enforcesSchema ?? false,
+      ...(spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens }),
       audit: input.audit,
       ...(apiKey === undefined ? {} : { apiKey }),
     }),
