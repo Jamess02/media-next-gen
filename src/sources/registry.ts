@@ -54,6 +54,9 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "ofac.treasury.gov", tier: 1, name: "OFAC" },
   { domain: "treasury.gov", tier: 1, name: "US Treasury" },
   { domain: "reliefweb.int", tier: 1, name: "ReliefWeb (ONU)" },
+  { domain: "boj.or.jp", tier: 1, name: "Banque du Japon" },
+  { domain: "impots.gouv.fr", tier: 1, name: "DGFiP" },
+  { domain: "economie.gouv.fr", tier: 1, name: "Ministere de l'Economie" },
 
   // --- Tier 2 : donnee publique agregee et sourcee -------------------------
   // Cas particulier §4 : GDELT est tier 2, mais "GDELT Cloud" est tier 3.
@@ -66,6 +69,9 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
 
   // --- Tier 3 : sources secondaires ---------------------------------------
   { domain: "gnews.io", tier: 3, name: "GNews" },
+  { domain: "aljazeera.com", tier: 3, name: "Al Jazeera" },
+  { domain: "haaretz.com", tier: 3, name: "Haaretz" },
+  { domain: "reuters.com", tier: 3, name: "Reuters" },
   { domain: "acleddata.com", tier: 3, name: "ACLED" },
   { domain: "sipri.org", tier: 3, name: "SIPRI" },
 

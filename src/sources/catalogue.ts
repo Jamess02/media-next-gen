@@ -13,11 +13,23 @@
 
 import { eurostatAdapter } from "./eurostat.js";
 import { ofacAdapter } from "./ofac.js";
+import { rssAdapter } from "./rss.js";
 import { fredAdapter } from "./fred.js";
 import { imfAdapter } from "./imf.js";
 import type { SourceAdapter } from "./types.js";
 import { usgsAdapter } from "./usgs.js";
 import { worldBankAdapter } from "./worldbank.js";
+
+/**
+ * Mention accolee a chaque observation de presse.
+ *
+ * Elle voyage avec le texte jusqu'a la claim, donc jusqu'a l'article. Un
+ * lecteur doit savoir qu'il lit une reprise editorialisee et non une donnee
+ * d'emetteur — et l'Analyste doit le voir avant de typer sa claim.
+ */
+const PRESSE_CAVEAT =
+  "Source de presse (tier 3) : couverture editorialisee, ne peut pas fonder " +
+  "un fait a elle seule (§3, EP-001) ; a confronter aux sources primaires.";
 
 export interface SkippedSource {
   id: string;
@@ -59,6 +71,52 @@ export function buildSourceCatalogue(
     // Volet geopolitique : jusqu'ici le catalogue ne contenait que des series
     // macro, alors que le media couvre « geopolitique ET economie ».
     ofacAdapter(),
+
+    // Banque centrale asiatique : les series macro branchees couvraient la
+    // zone euro et les Etats-Unis, pas l'Asie.
+    rssAdapter({
+      id: "boj:whatsnew",
+      source: "Banque du Japon",
+      url: "https://www.boj.or.jp/en/rss/whatsnew.xml",
+      describes: "Publications et communiques de la Banque du Japon",
+      type: "communique-banque-centrale",
+      limit: 3,
+    }),
+
+    // --- Tier 3 : presse ---------------------------------------------------
+    //
+    // Premieres sources secondaires du catalogue. Jusqu'ici tout etait de
+    // tier 1, ce qui laissait EP-001 (« la source primaire passe avant la
+    // reprise de presse ») sans rien a arbitrer sur des donnees reelles.
+    //
+    // DEUX TITRES, PAS UN. Al Jazeera et Haaretz couvrent les memes evenements
+    // depuis des lignes editoriales documentees et opposees. Brancher un seul
+    // des deux importerait son cadrage sans contrepoids ; les brancher
+    // ensemble rend testable ce que le §5.2 demande a l'Analyste — comparer le
+    // narratif mediatique aux donnees observables. Retirer l'un sans l'autre
+    // annulerait cette propriete.
+    //
+    // Les garde-fous du protocole s'appliquent d'eux-memes : une claim typee
+    // `fait` adossee au seul tier 3 est bloquee (FACT_NEEDS_PRIMARY_SOURCE), et
+    // un article entierement fonde sur du tier 3 doit le declarer (§4).
+    rssAdapter({
+      id: "aljazeera:all",
+      source: "Al Jazeera",
+      url: "https://www.aljazeera.com/xml/rss/all.xml",
+      describes: "Fil general Al Jazeera",
+      type: "presse",
+      limit: 3,
+      caveat: PRESSE_CAVEAT,
+    }),
+    rssAdapter({
+      id: "haaretz:all",
+      source: "Haaretz",
+      url: "https://www.haaretz.com/cmlink/1.4605102",
+      describes: "Fil general Haaretz",
+      type: "presse",
+      limit: 3,
+      caveat: PRESSE_CAVEAT,
+    }),
   ];
 
   const skipped: SkippedSource[] = [];
@@ -86,6 +144,23 @@ export function buildSourceCatalogue(
   // Documentees ici plutot que supprimees : le lecteur du code doit savoir
   // pourquoi une source du §4 n'est pas branchee.
   skipped.push(
+    {
+      id: "reuters:rss",
+      reason:
+        "Reuters a ferme ses flux publics : HTTP 401 sur le fil monde, 404 sur " +
+        "l'endpoint arc (verifie le 2026-09-02). Leur contenu est distribue sous " +
+        "licence ; il n'existe pas d'acces legitime sans contrat, et contourner " +
+        "cette absence par du moissonnage violerait leurs conditions.",
+    },
+    {
+      id: "impots-gouv:rss",
+      reason:
+        "impots.gouv.fr ne publie aucun flux (404, page HTML renvoyee). " +
+        "L'equivalent exploitable est data.economie.gouv.fr, dont l'API repond " +
+        "mais expose un CATALOGUE de jeux de donnees : il faudrait d'abord " +
+        "choisir un jeu et une serie precise, ce qui est une decision " +
+        "editoriale et non un branchement.",
+    },
     {
       id: "comtrade:preview",
       reason:

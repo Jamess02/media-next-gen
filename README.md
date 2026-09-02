@@ -179,6 +179,12 @@ Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sort
 | [USGS](src/sources/usgs.ts) | 1 | non | Solution `automatic` signalée comme préliminaire et révisable (§5.2) |
 | [FRED](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Valeurs `"."` jamais converties en 0 ; clé dans l'URL, caviardée au journal |
 | [OFAC](src/sources/ofac.ts) | 1 | non | Fichier de **deltas** (11 Ko) plutôt que la liste complète (5,6 Mo) ; **aucune identité publiée** |
+| [BoJ](src/sources/rss.ts) | 1 | non | Banque centrale asiatique — les séries branchées ne couvraient que zone euro et États-Unis |
+| [Al Jazeera + Haaretz](src/sources/rss.ts) | **3** | non | Premières sources **secondaires** ; mention de statut portée dans chaque observation |
+
+**Sur les deux titres de presse — c'est une décision éditoriale, pas un branchement.** Ils couvrent les mêmes événements depuis des lignes éditoriales documentées et opposées. Brancher un seul importerait son cadrage sans contrepoids ; les brancher ensemble rend testable ce que le §5.2 demande à l'Analyste — comparer le narratif médiatique aux données observables. **Retirer l'un sans l'autre annulerait cette propriété.**
+
+Leur arrivée débloque aussi ce qui manquait : avec uniquement du tier 1, **EP-001 n'avait rien à arbitrer**. Vérifié depuis : sur 19 observations réelles, 6 secondaires sont signalées comme éclipsées par une source primaire du même lot.
 
 **Sur OFAC** — le fichier de deltas contient les noms des personnes désignées. L'adaptateur ne les extrait pas, délibérément : ce pipeline a déjà produit, avec de vrais modèles, un chiffre partiel typé `fait` et un taux inventé. Les mêmes mécanismes appliqués à « X a été sanctionné » ne produiraient pas une erreur de chiffre mais une **imputation nominative fausse**. L'observation porte sur l'action — date, nombre d'entités, programmes, autorité légale — et le lecteur suit le lien vers OFAC pour les identités.
 
