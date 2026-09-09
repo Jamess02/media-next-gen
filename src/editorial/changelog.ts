@@ -14,6 +14,7 @@
  *    une correction publique.
  */
 
+import { createHash } from "node:crypto";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -62,9 +63,18 @@ export class EditorialChangelog {
    * Ajoute une entree. Seule operation d'ecriture exposee par ce module :
    * il n'existe volontairement ni `update` ni `delete`.
    */
+  /**
+   * Ajoute une entree, scellee sur la precedente.
+   *
+   * Le maillon precedent est relu du FICHIER a chaque ajout, jamais garde en
+   * memoire : deux processus qui ecriraient tour a tour — le pipeline et une
+   * validation manuelle — produiraient sinon deux chaines paralleles, chacune
+   * partant de ce que son processus croyait etre le dernier etat.
+   */
   async append(record: ChangelogRecord): Promise<void> {
     await this.ensureFile();
-    await appendFile(this.path, renderEntry(record), "utf8");
+    const prev = lastChainHash(await readFile(this.path, "utf8"));
+    await appendFile(this.path, renderEntry(record, prev), "utf8");
   }
 
   /** Enregistre la publication initiale d'un article. */
@@ -89,13 +99,112 @@ export class EditorialChangelog {
   }
 }
 
-function renderEntry(record: ChangelogRecord): string {
+/* -------------------------------------------------------------------------
+ * §9.6 — chainage d'empreintes
+ *
+ * Ce registre est append-only PAR L'API : le module n'expose ni `update` ni
+ * `delete`. Mais c'est un fichier markdown, et une ligne s'y edite ou s'y
+ * supprime sans laisser de trace. Or reecrire une correction publiee, c'est
+ * reecrire l'histoire editoriale — exactement ce que EP-004 interdit.
+ *
+ * Chaque entree scelle donc la precedente, comme le journal d'audit.
+ *
+ * LE MARQUEUR EST UN COMMENTAIRE HTML, et ce n'est pas un detail de forme : le
+ * §9.6 veut un registre LISIBLE par un humain. Une empreinte de 64 caracteres
+ * affichee sous chaque entree le rendrait illisible, donc inconsulte — et un
+ * registre que personne ne lit ne rend de comptes a personne. Invisible au
+ * rendu, presente dans le fichier : les deux exigences tiennent ensemble.
+ *
+ * MEME PORTEE, MEMES LIMITES QUE LE JOURNAL. Modification, suppression,
+ * insertion et reordonnancement sont detectes. Une reecriture COMPLETE avec
+ * recalcul de la chaine, ou une troncature finale, ne le sont pas : il y
+ * faudrait une signature ou une ancre externe.
+ * ---------------------------------------------------------------------- */
+
+export const CHANGELOG_GENESIS = "0".repeat(64);
+
+const MARQUEUR = /<!-- chaine: prev=([0-9a-f]{64}) entree=([0-9a-f]{64}) -->/g;
+
+/** Empreinte d'une entree : son texte visible, plus le maillon precedent. */
+function entryHash(texte: string, prev: string): string {
+  return createHash("sha256").update(`${prev}\n${texte}`).digest("hex");
+}
+
+export interface ChangelogVerification {
+  ok: boolean;
+  /** Entrees chainees effectivement verifiees. */
+  checked: number;
+  /** Index (0-base) de la premiere anomalie. */
+  brokenAt?: number;
+  reason?: string;
+}
+
+/**
+ * Verifie la chaine d'un registre.
+ *
+ * Un fichier sans aucun marqueur est declare INTACT avec zero entree verifiee :
+ * le registre existant a ete ecrit avant cette protection, et le declarer
+ * corrompu serait faux. Un outil qui crie au loup sur des donnees legitimes
+ * finit desactive.
+ */
+export function verifyChangelog(contenu: string): ChangelogVerification {
+  const marqueurs = [...contenu.matchAll(MARQUEUR)];
+  if (marqueurs.length === 0) return { ok: true, checked: 0 };
+
+  let precedent = CHANGELOG_GENESIS;
+
+  for (const [index, m] of marqueurs.entries()) {
+    // Le marqueur OUVRE son entree, il ne la ferme pas. Le texte scelle va donc
+    // de la fin de ce marqueur au debut du suivant — ou a la fin du fichier.
+    //
+    // Fermer l'entree paraissait plus naturel et etait faux : le texte de la
+    // PREMIERE entree englobait alors tout l'en-tete du fichier, que
+    // l'ecriture n'avait pas scelle. Ouvrir supprime l'ambiguite sans avoir a
+    // deviner ou l'en-tete se termine.
+    const suivant = marqueurs[index + 1];
+    const debut = m.index + m[0].length;
+    const texte = contenu.slice(debut, suivant?.index ?? contenu.length);
+    const prev = m[1] ?? "";
+    const propre = m[2] ?? "";
+
+    if (prev !== precedent) {
+      return {
+        ok: false,
+        checked: index,
+        brokenAt: index,
+        reason:
+          `chaine rompue a l'entree ${index} : elle annonce ${prev.slice(0, 12)}… ` +
+          `comme precedent, la chaine attend ${precedent.slice(0, 12)}…`,
+      };
+    }
+    if (entryHash(texte, prev) !== propre) {
+      return {
+        ok: false,
+        checked: index,
+        brokenAt: index,
+        reason: `entree ${index} modifiee : son empreinte ne correspond plus a son texte`,
+      };
+    }
+
+    precedent = propre;
+  }
+
+  return { ok: true, checked: marqueurs.length };
+}
+
+/** Dernier maillon d'un registre existant, ou la genese s'il n'y en a pas. */
+export function lastChainHash(contenu: string): string {
+  const marqueurs = [...contenu.matchAll(MARQUEUR)];
+  return marqueurs.at(-1)?.[2] ?? CHANGELOG_GENESIS;
+}
+
+function renderEntry(record: ChangelogRecord, prev: string): string {
   const label: Record<ChangelogType, string> = {
     factuelle: "Correction factuelle",
     méthodologique: "Revision methodologique",
     éditoriale: "Mise a jour editoriale",
   };
-  return [
+  const texte = [
     "",
     `## ${record.date} — ${label[record.type]}`,
     "",
@@ -104,4 +213,13 @@ function renderEntry(record: ChangelogRecord): string {
     record.description,
     "",
   ].join("\n");
+
+  // Le marqueur OUVRE l'entree ; voir `verifyChangelog` pour la raison.
+  //
+  // AUCUN caractere avant le marqueur. Un simple `\n` de presentation en tete
+  // appartenait a CETTE entree a l'ecriture, mais tombait dans le texte de la
+  // PRECEDENTE a la relecture — un octet de decalage, et toute la chaine
+  // echouait. `texte` commence deja par un saut de ligne, la separation est
+  // donc assuree sans rien ajouter.
+  return `<!-- chaine: prev=${prev} entree=${entryHash(texte, prev)} -->${texte}`;
 }

@@ -248,7 +248,36 @@ export class AuditLog {
   /** Relit une reponse archivee. C'est ce qui rend une correction (§6) verifiable. */
   async readRaw(record: AuditRecord): Promise<unknown> {
     // `raw_path` est relatif au journal : on le resout ici, pas a l'ecriture.
-    return JSON.parse(await readFile(join(this.dir, record.raw_path), "utf8"));
+    const chemin = join(this.dir, record.raw_path);
+
+    let contenu: string;
+    try {
+      contenu = await readFile(chemin, "utf8");
+    } catch {
+      throw new Error(
+        `Archive d'audit introuvable : ${record.raw_path}. La trace du §9.4 ` +
+          `renvoie a une reponse brute qui n'existe plus — la correction (§6) ` +
+          `ne peut pas etre verifiee.`,
+      );
+    }
+
+    // L'EMPREINTE EST VERIFIEE, et c'est tout l'interet de l'adressage par
+    // contenu. Le nom du fichier EST l'empreinte : modifier l'archive devrait
+    // rendre l'incoherence visible. Lire sans recalculer transformait cette
+    // garantie en decoration — et le scenario n'est pas theorique : corriger
+    // apres coup la reponse d'une source pour la faire correspondre a ce que
+    // l'article affirme ferait de la falsification la piece justificative.
+    const reel = createHash("sha256").update(contenu).digest("hex");
+    if (reel !== record.raw_sha256) {
+      throw new Error(
+        `Archive alteree : ${record.raw_path} a pour empreinte reelle ` +
+          `${reel.slice(0, 12)}… alors que le journal en attend ` +
+          `${record.raw_sha256.slice(0, 12)}…. Le contenu a change depuis son ` +
+          `archivage : il ne peut plus servir de preuve.`,
+      );
+    }
+
+    return JSON.parse(contenu);
   }
 }
 

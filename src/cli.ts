@@ -12,12 +12,14 @@
  * d'environnement trainait ne serait pas un comportement acceptable.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PublicationRefused } from "./agents/editeur.js";
 import { AuditLog, verifyJournal } from "./audit/audit-log.js";
+import { verifyChangelog } from "./editorial/changelog.js";
 import { validateArticle } from "./editorial/validation.js";
 import { buildSite } from "./site/build.js";
 import { serveSite } from "./site/serve.js";
@@ -435,6 +437,8 @@ async function verifyJournalCommand(): Promise<void> {
     .filter((l: string) => l.trim().length > 0);
   const r = verifyJournal(lignes);
 
+  console.log("VERIFICATION D'INTEGRITE");
+  console.log("");
   console.log(`JOURNAL D'AUDIT — ${lignes.length} entree(s)`);
   console.log(`  ${r.checked} chainee(s) et verifiee(s)`);
   if (r.legacy > 0) {
@@ -445,19 +449,83 @@ async function verifyJournalCommand(): Promise<void> {
   console.log("");
 
   if (r.ok) {
-    console.log("CHAINE INTACTE.");
-    console.log("");
-    console.log("Portee de cette garantie : la modification, la suppression,");
-    console.log("l'insertion et le reordonnancement d'une entree sont detectes.");
-    console.log("Une reecriture COMPLETE avec recalcul de la chaine, ou une");
-    console.log("troncature finale, ne le sont pas — il y faudrait une signature");
-    console.log("ou une ancre externe (un commit signe, un horodatage tiers).");
-    return;
+    console.log("  chaine INTACTE");
+  } else {
+    console.error(`  CHAINE ROMPUE a l'entree ${r.brokenAt} — ${r.reason}`);
+    process.exitCode = 1;
   }
 
-  console.error(`CHAINE ROMPUE a l'entree ${r.brokenAt}.`);
-  console.error(`  ${r.reason}`);
-  process.exitCode = 1;
+  /* --- Archives brutes : l'adressage par contenu, verifie ---------------- */
+  // Sans ce controle, `raw/<sha256>.json` n'est qu'une convention de nommage.
+  // C'est ici qu'on constate qu'une reponse archivee n'a pas ete retouchee
+  // apres coup pour correspondre a ce qu'un article affirme.
+  console.log("");
+  console.log("ARCHIVES BRUTES");
+  let verifiees = 0;
+  let manquantes = 0;
+  let alterees = 0;
+  const vues = new Set<string>();
+
+  for (const ligne of lignes) {
+    let e: { raw_path?: string; raw_sha256?: string };
+    try {
+      e = JSON.parse(ligne) as typeof e;
+    } catch {
+      continue;
+    }
+    if (typeof e.raw_path !== "string" || typeof e.raw_sha256 !== "string") continue;
+    if (vues.has(e.raw_path)) continue;
+    vues.add(e.raw_path);
+
+    const fichier = join(process.cwd(), "audit", e.raw_path);
+    if (!existsSync(fichier)) {
+      manquantes += 1;
+      continue;
+    }
+    const reel = createHash("sha256")
+      .update(await readFile(fichier, "utf8"))
+      .digest("hex");
+    if (reel === e.raw_sha256) verifiees += 1;
+    else {
+      alterees += 1;
+      console.error(`  ALTEREE : ${e.raw_path}`);
+    }
+  }
+
+  console.log(`  ${verifiees} archive(s) verifiee(s)`);
+  if (manquantes > 0) {
+    // `audit/raw/` est hors versionnement : sur un depot fraichement clone,
+    // toutes les archives manquent, et ce n'est pas une anomalie.
+    console.log(`  ${manquantes} absente(s) — normal hors de la machine qui a collecte`);
+  }
+  if (alterees > 0) {
+    console.error(`  ${alterees} ALTEREE(S) : le contenu ne correspond plus a son empreinte`);
+    process.exitCode = 1;
+  }
+
+  /* --- Changelog editorial (§9.6) --------------------------------------- */
+  console.log("");
+  console.log("CHANGELOG EDITORIAL");
+  const cheminChangelog = join(process.cwd(), "changelog-editorial.md");
+  if (!existsSync(cheminChangelog)) {
+    console.log("  aucun registre a verifier");
+  } else {
+    const c = verifyChangelog(await readFile(cheminChangelog, "utf8"));
+    console.log(`  ${c.checked} entree(s) chainee(s)`);
+    if (c.ok) console.log("  chaine INTACTE");
+    else {
+      console.error(`  CHAINE ROMPUE a l'entree ${c.brokenAt} — ${c.reason}`);
+      process.exitCode = 1;
+    }
+  }
+
+  console.log("");
+  console.log("PORTEE DE CES GARANTIES — a lire avant de s'y fier.");
+  console.log("Sont detectes : la modification, la suppression, l'insertion et le");
+  console.log("reordonnancement d'une entree, ainsi que l'alteration d'une archive.");
+  console.log("Ne le sont PAS : une reecriture complete avec recalcul de la chaine,");
+  console.log("ni une troncature finale. Il y faudrait une ancre externe — un commit");
+  console.log("signe, ou l'empreinte publiee ailleurs.");
 }
 
 async function studioCommand(port: number): Promise<void> {
