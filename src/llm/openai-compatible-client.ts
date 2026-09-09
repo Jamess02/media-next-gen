@@ -272,12 +272,18 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
         const detail =
           cause.name === "TimeoutError" || cause.name === "AbortError"
             ? `pas de reponse en ${this.config.timeoutMs} ms`
-            : `echec reseau — ${cause.message}`;
+            : // Le message d'une erreur reseau vient d'une couche qu'on ne
+              // controle pas — undici, un proxy, une bibliotheque systeme — et
+              // certaines y reprennent les en-tetes de la requete, donc
+              // `Authorization: Bearer <clef>`. Ce detail remonte au CLI, au
+              // studio et jusqu'aux incertitudes d'un article : on le caviarde
+              // avant de le laisser sortir.
+              `echec reseau — ${scrubSecret(cause.message, this.config.apiKey)}`;
         await this.record(request, dateObserved, { body }, detail);
         throw new ProviderHttpError(this.config.providerName, url, detail);
       }
 
-      text = await response.text();
+      text = await readCapped(response, this.config.providerName, url);
       if (response.ok) break;
 
       const attente = retryDelayMs(response, text, essai);
@@ -340,6 +346,75 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
       ...(error === undefined ? {} : { error }),
     });
   }
+}
+
+/**
+ * Plafond de corps de reponse d'un fournisseur, en octets.
+ *
+ * 4 Mo : tres large devant une completion structuree (quelques dizaines de Ko
+ * au plus, `maxTokens` bornant deja la sortie) et assez bas pour qu'un
+ * fournisseur defaillant — ou une URL de base detournee, `MEDIA_BASE_URL`
+ * etant surchargeable — ne fasse pas tomber le processus.
+ */
+export const MAX_LLM_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Retire une clef d'un texte destine a sortir du processus.
+ *
+ * Ne remplace pas `audit/redaction.ts`, qui caviarde les SECRETS D'URL : ici on
+ * traite une valeur d'en-tete, que ce module est seul a connaitre.
+ */
+function scrubSecret(texte: string, clef: string | undefined): string {
+  if (clef === undefined || clef.length === 0) return texte;
+  return texte.split(clef).join("***CAVIARDE***");
+}
+
+/** Lit un corps de reponse en refusant de depasser le plafond. */
+async function readCapped(
+  reponse: Response,
+  providerName: string,
+  url: string,
+): Promise<string> {
+  const annonce = Number(reponse.headers?.get?.("content-length") ?? Number.NaN);
+  if (Number.isFinite(annonce) && annonce > MAX_LLM_RESPONSE_BYTES) {
+    throw new ProviderHttpError(
+      providerName,
+      url,
+      `reponse trop volumineuse : ${annonce} octets annonces pour un plafond de ${MAX_LLM_RESPONSE_BYTES}`,
+      reponse.status,
+    );
+  }
+
+  const flux = reponse.body;
+  if (flux === null || flux === undefined) return await reponse.text();
+
+  const lecteur = flux.getReader();
+  const morceaux: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lecteur.read();
+    if (done) break;
+    if (value === undefined) continue;
+    total += value.byteLength;
+    if (total > MAX_LLM_RESPONSE_BYTES) {
+      await lecteur.cancel();
+      throw new ProviderHttpError(
+        providerName,
+        url,
+        `reponse trop volumineuse : plafond de ${MAX_LLM_RESPONSE_BYTES} octets depasse a la lecture`,
+        reponse.status,
+      );
+    }
+    morceaux.push(value);
+  }
+
+  const assemble = new Uint8Array(total);
+  let position = 0;
+  for (const m of morceaux) {
+    assemble.set(m, position);
+    position += m.byteLength;
+  }
+  return new TextDecoder().decode(assemble);
 }
 
 export class ProviderHttpError extends Error {

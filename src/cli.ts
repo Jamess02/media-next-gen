@@ -12,10 +12,12 @@
  * d'environnement trainait ne serait pas un comportement acceptable.
  */
 
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PublicationRefused } from "./agents/editeur.js";
-import { AuditLog } from "./audit/audit-log.js";
+import { AuditLog, verifyJournal } from "./audit/audit-log.js";
 import { validateArticle } from "./editorial/validation.js";
 import { buildSite } from "./site/build.js";
 import { serveSite } from "./site/serve.js";
@@ -71,6 +73,7 @@ type Command =
   | ReviseCommand
   | { kind: "list-providers" }
   | { kind: "validate"; articleId: string; reviewer: string; note?: string }
+  | { kind: "verify-journal" }
   | { kind: "build-site"; drafts: boolean }
   | { kind: "preview"; port: number; drafts: boolean }
   | { kind: "studio"; port: number }
@@ -132,6 +135,7 @@ function parseArgs(argv: readonly string[]): Command {
     };
   }
 
+  if (positional[0] === "journal") return { kind: "verify-journal" };
   if (positional[0] === "site") return { kind: "build-site", drafts };
   if (positional[0] === "preview") {
     const port = Number(positional[1]);
@@ -387,9 +391,9 @@ async function previewCommand(port: number, drafts: boolean): Promise<void> {
       })
     : await buildSite();
 
-  const url = await serveSite({ root: build.siteDir, port });
+  const serveur = await serveSite({ root: build.siteDir, port });
 
-  console.log(`SITE EN LIGNE — ${url}`);
+  console.log(`SITE EN LIGNE — ${serveur.url}`);
   console.log("");
   console.log(`  ${build.published} article(s) publie(s), ${build.pages.length} page(s)`);
   if (drafts) {
@@ -403,6 +407,50 @@ async function previewCommand(port: number, drafts: boolean): Promise<void> {
   console.log("  Machines : /feed.xml  /sitemap.xml  /robots.txt");
   console.log("");
   console.log("Ecoute sur la boucle locale uniquement. Ctrl+C pour arreter.");
+}
+
+/**
+ * §9.4 — verifie la chaine d'empreintes du journal d'audit.
+ *
+ * Sans cette commande, le chainage existerait sans que personne puisse
+ * l'invoquer : une garantie qu'on ne peut pas constater n'en est pas une.
+ * Sortie en echec si la chaine est rompue, pour qu'une CI puisse s'en servir.
+ */
+async function verifyJournalCommand(): Promise<void> {
+  const chemin = join(process.cwd(), "audit", "journal.jsonl");
+  if (!existsSync(chemin)) {
+    console.log("Aucun journal d'audit a verifier.");
+    return;
+  }
+
+  const lignes = (await readFile(chemin, "utf8"))
+    .split("\n")
+    .filter((l: string) => l.trim().length > 0);
+  const r = verifyJournal(lignes);
+
+  console.log(`JOURNAL D'AUDIT — ${lignes.length} entree(s)`);
+  console.log(`  ${r.checked} chainee(s) et verifiee(s)`);
+  if (r.legacy > 0) {
+    console.log(
+      `  ${r.legacy} anterieure(s) au chainage : non verifiables, pas suspectes`,
+    );
+  }
+  console.log("");
+
+  if (r.ok) {
+    console.log("CHAINE INTACTE.");
+    console.log("");
+    console.log("Portee de cette garantie : la modification, la suppression,");
+    console.log("l'insertion et le reordonnancement d'une entree sont detectes.");
+    console.log("Une reecriture COMPLETE avec recalcul de la chaine, ou une");
+    console.log("troncature finale, ne le sont pas — il y faudrait une signature");
+    console.log("ou une ancre externe (un commit signe, un horodatage tiers).");
+    return;
+  }
+
+  console.error(`CHAINE ROMPUE a l'entree ${r.brokenAt}.`);
+  console.error(`  ${r.reason}`);
+  process.exitCode = 1;
 }
 
 async function studioCommand(port: number): Promise<void> {
@@ -432,6 +480,8 @@ async function main(): Promise<void> {
       return;
     case "validate":
       return validateCommand(command);
+    case "verify-journal":
+      return verifyJournalCommand();
     case "build-site":
       return buildSiteCommand(command.drafts);
     case "preview":

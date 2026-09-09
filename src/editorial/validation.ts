@@ -35,6 +35,8 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 import { runEditorialGate, type Violation } from "../protocol/rules.js";
 import { ArticleSchema, type Article } from "../protocol/schema.js";
 import { PublicationRefused } from "../agents/editeur.js";
@@ -48,17 +50,46 @@ export const ARTICLE_ID_PATTERN =
   /^article-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Attestation de relecture, deposee a cote de l'article. */
-export interface ReviewRecord {
-  article_id: string;
-  article_title: string;
-  /** Qui a relu. Une relecture anonyme n'engage personne. */
-  reviewer: string;
-  reviewed_at: string;
-  /** Empreinte du contenu relu : une modification ulterieure l'invalide. */
-  content_sha256: string;
-  /** Observations du relecteur, publiees avec l'article. */
-  note: string | null;
-}
+/**
+ * §7 — forme d'une attestation de relecture.
+ *
+ * SCHEMA ET NON INTERFACE, et la difference n'est pas cosmetique : ce fichier
+ * est lu depuis le DISQUE, donc depuis ce qu'un attaquant ayant acces au depot
+ * modifierait en premier. La lecture se faisait par un cast
+ * (`JSON.parse(...) as ReviewRecord`), c'est-a-dire par une promesse du
+ * compilateur qui ne survit pas a l'execution. Tout le reste du projet parse
+ * avec zod ; il n'y avait aucune raison d'exempter le fichier qui porte la
+ * responsabilite d'une personne nommee.
+ *
+ * `.strict()` : un champ inconnu signale une attestation produite par autre
+ * chose que ce pipeline. Mieux vaut la refuser que l'ignorer.
+ *
+ * CE QUE CE SCHEMA NE PROUVE PAS. Il lie un contenu a un NOM, pas a une
+ * personne : quiconque peut ecrire dans le depot peut changer ce nom. Seule une
+ * signature cryptographique le corrigerait. La garantie offerte ici est
+ * l'integrite du CONTENU relu, pas l'authenticite du relecteur.
+ */
+export const ReviewRecordSchema = z
+  .object({
+    article_id: z.string().min(1),
+    article_title: z.string().min(1),
+    /**
+     * Qui a relu. Le message est explicite plutot que generique : « attestation
+     * de forme invalide » n'aide personne a comprendre qu'il manque un nom.
+     */
+    reviewer: z
+      .string()
+      .trim()
+      .min(1, "attestation sans relecteur nomme — une relecture anonyme n'engage personne"),
+    reviewed_at: z.iso.datetime({ offset: true }),
+    /** Empreinte du contenu relu : une modification ulterieure l'invalide. */
+    content_sha256: z.string().regex(/^[0-9a-f]{64}$/, "empreinte sha-256 attendue"),
+    /** Observations du relecteur, publiees avec l'article. */
+    note: z.string().nullable(),
+  })
+  .strict();
+
+export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
 
 /**
  * Trie les clefs RECURSIVEMENT, a tous les niveaux.
@@ -253,18 +284,40 @@ export async function verifyReview(
     return { ok: false, reason: "aucune attestation de relecture" };
   }
 
-  let review: ReviewRecord;
+  let brut: unknown;
   try {
-    review = JSON.parse(await readFile(reviewPath, "utf8")) as ReviewRecord;
+    brut = JSON.parse(await readFile(reviewPath, "utf8"));
   } catch {
     return { ok: false, reason: "attestation de relecture illisible" };
   }
 
+  const parsed = ReviewRecordSchema.safeParse(brut);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      reason:
+        "attestation de forme invalide : " +
+        parsed.error.issues
+          .map((i) => `${i.path.join(".") || "<racine>"} — ${i.message}`)
+          .join(" ; "),
+    };
+  }
+  const review = parsed.data;
+
   if (review.article_id !== article.id) {
     return { ok: false, reason: "l'attestation porte sur un autre article" };
   }
-  if (typeof review.reviewer !== "string" || review.reviewer.trim().length === 0) {
-    return { ok: false, reason: "attestation sans relecteur nomme" };
+
+  // §6 / §8 — relire un article avant qu'il existe est impossible. Une date
+  // anterieure signale soit une attestation fabriquee, soit une date de
+  // publication reecrite apres coup, ce que le §8 interdit.
+  if (Date.parse(review.reviewed_at) < Date.parse(article.published_at)) {
+    return {
+      ok: false,
+      reason:
+        `attestation datee du ${review.reviewed_at}, anterieure a la publication ` +
+        `(${article.published_at}) : relecture impossible`,
+    };
   }
   if (review.content_sha256 !== contentHash(article)) {
     return {

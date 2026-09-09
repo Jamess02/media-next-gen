@@ -31,13 +31,52 @@
 const SAFE_LINK_SCHEME = /^(?:https?:|#|\/|\.{1,2}\/)/i;
 
 /**
+ * Caracteres qui n'ont aucune apparence propre mais qui changent ce que l'oeil
+ * lit.
+ *
+ * DEUX FAMILLES, un meme effet : le texte stocke dit une chose, le texte
+ * affiche en dit une autre — et c'est l'affiche que le lecteur croit.
+ *
+ *  - forcage bidirectionnel (U+202A-U+202E, U+2066-U+2069, U+200E, U+200F) :
+ *    inverse l'ordre d'affichage de ce qui suit. « -569 MUSD » peut s'afficher
+ *    « DSUM 965- ». Sur un media dont la promesse est qu'une affirmation puisse
+ *    etre relue et contestee, un texte qui ne se lit pas tel qu'il est ecrit
+ *    ruine la promesse a la racine ;
+ *  - largeur nulle (U+200B-U+200D, U+2060, U+FEFF) : glisses dans une URL
+ *    AFFICHEE, ils la font ressembler a un domaine legitime alors que la cible
+ *    du lien est ailleurs.
+ *
+ * L'echappement markdown ne les voit pas : ils ne produisent aucun balisage.
+ * Ce sont les seuls caracteres que ce module RETIRE au lieu d'echapper — on ne
+ * peut pas rendre inoffensif ce qui agit par sa seule presence.
+ */
+const CONTROLES_INVISIBLES = /[​-‏‪-‮⁠-⁩﻿]/g;
+
+/**
+ * Retire ces caracteres EN LE DISANT.
+ *
+ * Les supprimer en silence modifierait un texte de source sans laisser de
+ * trace, ce que le §8 refuse au meme titre qu'une date effacee. Le lecteur voit
+ * qu'il manque quelque chose, et lequel.
+ */
+export function neutralizeInvisible(text: string): string {
+  return text.replace(CONTROLES_INVISIBLES, (c) => {
+    const point = c.codePointAt(0)?.toString(16).toUpperCase().padStart(4, "0");
+    return `[caractere invisible retire : U+${point}]`;
+  });
+}
+
+/**
  * Echappe le balisage markdown dans un texte de donnee.
  *
- * L'antislash est traite EN PREMIER : l'echapper apres les autres
- * re-echapperait les antislashs qu'on vient d'introduire.
+ * Les caracteres invisibles sont retires EN PREMIER : les echapper n'aurait
+ * aucun effet, puisqu'ils n'ont pas d'apparence a echapper.
+ *
+ * L'antislash vient ensuite : le traiter apres les autres re-echapperait les
+ * antislashs qu'on vient d'introduire.
  */
 export function escapeSourceText(text: string): string {
-  return text
+  return neutralizeInvisible(text)
     .replace(/\\/g, "\\\\")
     // Liens et images.
     .replace(/\[/g, "\\[")

@@ -59,6 +59,18 @@ export interface AuditRecord {
   /** Renseigne si l'appel a echoue. La trace d'un echec compte aussi. */
   error?: string;
   /**
+   * Empreinte de l'entree PRECEDENTE. `GENESIS_SHA256` pour la premiere.
+   *
+   * C'est ce qui transforme un fichier append-only par usage en fichier
+   * append-only VERIFIABLE : le journal est un texte, et quiconque peut ecrire
+   * dans le depot peut y reecrire une ligne. Une trace qu'on peut editer sans
+   * laisser de marque ne prouve rien — elle donne l'apparence d'une preuve, ce
+   * qui est pire que pas de trace.
+   */
+  prev_sha256?: string;
+  /** Empreinte de cette entree, chainage inclus. Voir `verifyJournal`. */
+  entry_sha256?: string;
+  /**
    * Parametres caviardes dans `target` et `error` (voir `redaction.ts`).
    * Present uniquement si un caviardage a eu lieu : une URL alteree en silence
    * ne serait plus une preuve, donc l'alteration se declare.
@@ -92,6 +104,14 @@ export class AuditLog {
   private writeQueue: Promise<void> = Promise.resolve();
   private ready: Promise<void> | undefined;
 
+  /**
+   * Dernier maillon de la chaine. Repris du journal existant par `initChain`,
+   * de sorte que la chaine soit continue d'une session a l'autre et non
+   * seulement verifiable par segment.
+   */
+  private lastEntryHash: string = GENESIS_SHA256;
+  private chainReady: Promise<void> | undefined;
+
   constructor(options: AuditLogOptions = {}) {
     this.dir = options.dir ?? DEFAULT_AUDIT_DIR;
     this.rawDir = join(this.dir, "raw");
@@ -102,6 +122,39 @@ export class AuditLog {
   private async ensureDirs(): Promise<void> {
     this.ready ??= mkdir(this.rawDir, { recursive: true }).then(() => undefined);
     return this.ready;
+  }
+
+  /**
+   * Reprend la chaine la ou le journal existant l'a laissee.
+   *
+   * SANS CELA, chaque session repartirait de la genese et la chaine serait
+   * verifiable par SEGMENT seulement. Un attaquant pourrait alors tronquer un
+   * segment et en recoller un forge partant de la genese : la verification n'y
+   * verrait qu'une reprise legitime. Lire le dernier maillon supprime cette
+   * couture.
+   *
+   * Tolerant par necessite : journal absent, tronque, ou derniere ligne
+   * anterieure au chainage. Dans tous ces cas on repart de la genese — refuser
+   * de demarrer parce qu'un journal est illisible transformerait un probleme
+   * d'audit en panne de production.
+   */
+  private async initChain(): Promise<void> {
+    this.chainReady ??= (async () => {
+      if (!this.persist) return;
+      try {
+        const contenu = await readFile(this.journalPath, "utf8");
+        const lignes = contenu.split("\n").filter((l) => l.trim().length > 0);
+        const derniere = lignes.at(-1);
+        if (derniere === undefined) return;
+        const entree = JSON.parse(derniere) as Record<string, unknown>;
+        const propre = entree["entry_sha256"];
+        if (typeof propre === "string") this.lastEntryHash = propre;
+      } catch {
+        // Journal absent ou illisible : la chaine repart de la genese, et
+        // `verifyJournal` le signalera comme tel.
+      }
+    })();
+    return this.chainReady;
   }
 
   /**
@@ -116,6 +169,10 @@ export class AuditLog {
     raw: unknown;
     error?: string;
   }): Promise<AuditRecord> {
+    // La reprise de chaine precede la construction de l'entree : le maillon
+    // precedent doit etre connu avant de sceller quoi que ce soit.
+    await this.initChain();
+
     // Serialisation stable : une meme reponse doit toujours donner la meme
     // empreinte, sinon la deduplication et la verification d'integrite sautent.
     const serialized = JSON.stringify(input.raw, stableReplacer, 2);
@@ -143,7 +200,7 @@ export class AuditLog {
       ]),
     ];
 
-    const record: AuditRecord = {
+    const contenu = {
       logged_at: new Date().toISOString(),
       kind: input.kind,
       agent: input.agent,
@@ -156,6 +213,18 @@ export class AuditLog {
         : { error: errorRedaction.redacted }),
       ...(redactedParams.length === 0 ? {} : { redacted_params: redactedParams }),
     };
+
+    // §9.4 — chainage. L'entree scelle la precedente : modifier, supprimer,
+    // inserer ou reordonner une ligne casse la chaine pour toutes les
+    // suivantes, et `verifyJournal` dit ou.
+    const prev = this.lastEntryHash;
+    const propre = entryHash(contenu, prev);
+    const record: AuditRecord = {
+      ...contenu,
+      prev_sha256: prev,
+      entry_sha256: propre,
+    };
+    this.lastEntryHash = propre;
 
     this.records.push(record);
 
@@ -181,6 +250,130 @@ export class AuditLog {
     // `raw_path` est relatif au journal : on le resout ici, pas a l'ecriture.
     return JSON.parse(await readFile(join(this.dir, record.raw_path), "utf8"));
   }
+}
+
+/* -------------------------------------------------------------------------
+ * §9.4 — chainage et verification
+ * ---------------------------------------------------------------------- */
+
+/** Maillon zero. Rend la premiere entree verifiable comme les autres. */
+export const GENESIS_SHA256 = "0".repeat(64);
+
+/** Champs de chainage, exclus du contenu qu'ils scellent. */
+const CHAMPS_DE_CHAINE = ["prev_sha256", "entry_sha256"] as const;
+
+/**
+ * Empreinte d'une entree : son contenu, plus le maillon precedent.
+ *
+ * Inclure `prev` dans le hache est tout le mecanisme : sans lui, chaque entree
+ * serait verifiable isolement et on pourrait en supprimer une sans que rien ne
+ * s'en apercoive.
+ */
+function entryHash(contenu: unknown, prev: string): string {
+  return createHash("sha256")
+    .update(`${prev}\n${JSON.stringify(contenu, stableReplacer)}`)
+    .digest("hex");
+}
+
+export interface JournalVerification {
+  ok: boolean;
+  /** Entrees chainees effectivement verifiees. */
+  checked: number;
+  /** Entrees anterieures au chainage : signalees, pas suspectes. */
+  legacy: number;
+  /** Index (0-base) de la premiere anomalie. */
+  brokenAt?: number;
+  reason?: string;
+}
+
+/**
+ * Verifie la chaine d'un journal.
+ *
+ * CE QUE CELA DETECTE : la modification, la suppression, l'insertion et le
+ * reordonnancement d'une entree. Chacune casse la chaine a partir du point
+ * touche, et l'index est rendu.
+ *
+ * CE QUE CELA NE DETECTE PAS, et il faut le dire : une reecriture COMPLETE par
+ * quelqu'un qui recalculerait toute la chaine, ni la troncature du journal a sa
+ * fin. Seule une signature, ou une ancre publiee ailleurs (un commit signe, un
+ * horodatage tiers), le ferait. Le chainage rend l'alteration PONCTUELLE
+ * detectable — ce que la plupart des falsifications sont : rapides et locales.
+ *
+ * Les entrees sans champs de chaine sont comptees a part. Le journal existant a
+ * ete ecrit avant cette protection : le declarer corrompu serait faux, et un
+ * outil qui crie au loup sur des donnees legitimes finit desactive. En
+ * revanche, une entree non chainee APRES le debut du chainage est une anomalie
+ * — c'est ce que ferait quelqu'un qui retire les champs pour echapper au
+ * controle.
+ */
+export function verifyJournal(lines: readonly string[]): JournalVerification {
+  let precedent: string | undefined;
+  let checked = 0;
+  let legacy = 0;
+
+  for (const [index, ligne] of lines.entries()) {
+    let entree: Record<string, unknown>;
+    try {
+      entree = JSON.parse(ligne) as Record<string, unknown>;
+    } catch {
+      return {
+        ok: false,
+        checked,
+        legacy,
+        brokenAt: index,
+        reason: "ligne illisible : le journal n'est plus du JSONL valide",
+      };
+    }
+
+    const prev = entree["prev_sha256"];
+    const propre = entree["entry_sha256"];
+
+    if (typeof prev !== "string" || typeof propre !== "string") {
+      if (precedent !== undefined) {
+        return {
+          ok: false,
+          checked,
+          legacy,
+          brokenAt: index,
+          reason:
+            "entree sans champs de chaine apres le debut du chainage : " +
+            "champs retires pour echapper au controle",
+        };
+      }
+      legacy += 1;
+      continue;
+    }
+
+    const attendu = precedent ?? GENESIS_SHA256;
+    if (prev !== attendu) {
+      return {
+        ok: false,
+        checked,
+        legacy,
+        brokenAt: index,
+        reason:
+          `chaine rompue : l'entree annonce ${prev.slice(0, 12)}… comme ` +
+          `precedent, la chaine attend ${attendu.slice(0, 12)}…`,
+      };
+    }
+
+    const contenu = { ...entree };
+    for (const champ of CHAMPS_DE_CHAINE) delete contenu[champ];
+    if (entryHash(contenu, prev) !== propre) {
+      return {
+        ok: false,
+        checked,
+        legacy,
+        brokenAt: index,
+        reason: "contenu modifie : l'empreinte ne correspond pas a l'entree",
+      };
+    }
+
+    precedent = propre;
+    checked += 1;
+  }
+
+  return { ok: true, checked, legacy };
 }
 
 /** Tri des clefs d'objet : rend `JSON.stringify` deterministe. */

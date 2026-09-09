@@ -21,6 +21,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
+import { hoteLocal } from "./loopback.js";
+
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".xml": "application/xml; charset=utf-8",
@@ -38,29 +40,53 @@ export interface ServeOptions {
   port?: number;
 }
 
-export async function serveSite(options: ServeOptions): Promise<string> {
+export interface ServeInstance {
+  url: string;
+  close: () => Promise<void>;
+}
+
+export async function serveSite(options: ServeOptions): Promise<ServeInstance> {
   const racine = resolve(options.root);
   const port = options.port ?? 4321;
 
   const server = createServer((req, res) => {
     void (async () => {
-      // Le chemin brut peut contenir une requete, un fragment ou un encodage.
-      let chemin: string;
+      // TOUT le gestionnaire est protege. Sans ce filet, une exception levee
+      // hors des `try` internes — un chemin qui casse `resolve`, un en-tete
+      // aberrant — devient un rejet non gere, et Node termine le processus.
+      // Un deni de service par une seule requete malformee.
       try {
-        chemin = decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname);
-      } catch {
-        res.writeHead(400).end("requete malformee");
-        return;
-      }
+        // §Reattachement DNS. L'apercu sert des BROUILLONS que personne n'a
+        // relus : les rendre lisibles depuis une page tierce est une fuite,
+        // meme sans effet de bord.
+        if (!hoteLocal(req.headers.host)) {
+          res.writeHead(403).end("hote non local");
+          return;
+        }
 
-      const cible = resolve(racine, `.${normalize(chemin)}`);
+        // Le chemin brut peut contenir une requete, un fragment ou un encodage.
+        let chemin: string;
+        try {
+          chemin = decodeURIComponent(
+            new URL(req.url ?? "/", "http://127.0.0.1").pathname,
+          );
+        } catch {
+          res.writeHead(400).end("requete malformee");
+          return;
+        }
 
-      // Confinement : le chemin resolu doit rester sous la racine. Sans ce
-      // controle, `GET /../../.env` servirait un fichier du projet.
-      if (cible !== racine && !cible.startsWith(racine + sep)) {
-        res.writeHead(403).end("hors du dossier publie");
-        return;
-      }
+        // La barre inversee est un separateur SUR WINDOWS. `normalize` la
+        // traite, mais seulement apres que `..\\` a ete lu comme un segment :
+        // on la ramene donc a la forme POSIX avant toute resolution, pour que
+        // les deux plateformes voient exactement le meme chemin.
+        const cible = resolve(racine, `.${normalize(chemin.replace(/\\/g, "/"))}`);
+
+        // Confinement : le chemin resolu doit rester sous la racine. Sans ce
+        // controle, `GET /../../.env` servirait un fichier du projet.
+        if (cible !== racine && !cible.startsWith(racine + sep)) {
+          res.writeHead(403).end("hors du dossier publie");
+          return;
+        }
 
       let fichier = cible;
       try {
@@ -80,16 +106,35 @@ export async function serveSite(options: ServeOptions): Promise<string> {
         return;
       }
 
-      res.writeHead(fichier.endsWith("404.html") ? 404 : 200, {
-        "content-type": TYPES[extname(fichier)] ?? "application/octet-stream",
-        // Apercu local : on ne veut jamais relire une version obsolete apres
-        // avoir regenere le site.
-        "cache-control": "no-store",
-      });
-      createReadStream(fichier).pipe(res);
+        res.writeHead(fichier.endsWith("404.html") ? 404 : 200, {
+          "content-type": TYPES[extname(fichier)] ?? "application/octet-stream",
+          // Apercu local : on ne veut jamais relire une version obsolete apres
+          // avoir regenere le site.
+          "cache-control": "no-store",
+        });
+        createReadStream(fichier).pipe(res);
+      } catch {
+        // Le detail n'est pas rendu au client : un message d'erreur de systeme
+        // de fichiers revele des chemins absolus.
+        if (!res.headersSent) res.writeHead(400).end("requete invalide");
+      }
     })();
   });
 
   await new Promise<void>((r) => server.listen(port, "127.0.0.1", r));
-  return `http://127.0.0.1:${port}`;
+
+  // Port reel : `port: 0` laisse le systeme en choisir un libre, ce dont les
+  // tests ont besoin pour tourner sans se disputer 4321.
+  const adresse = server.address();
+  const portReel =
+    adresse !== null && typeof adresse === "object" ? adresse.port : port;
+
+  return {
+    url: `http://127.0.0.1:${portReel}`,
+    close: () =>
+      new Promise<void>((resolve_) => {
+        server.closeAllConnections?.();
+        server.close(() => resolve_());
+      }),
+  };
 }
