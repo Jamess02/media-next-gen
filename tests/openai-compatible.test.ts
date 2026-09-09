@@ -358,9 +358,12 @@ describe("journalisation (§9.4)", () => {
       audit,
     });
 
-    stubResponses([{ ok: false, status: 503, body: "indisponible" }]);
+    // 500 et non 503 : depuis la reprise sur surcharge, un 503 serait
+    // reessaye. L intention de ce test est la JOURNALISATION d un echec HTTP,
+    // pas le choix du code.
+    stubResponses([{ ok: false, status: 500, body: "indisponible" }]);
     await expect(c.structured(request)).rejects.toThrow();
-    expect(audit.entries()[0]?.error).toMatch(/HTTP 503/);
+    expect(audit.entries()[0]?.error).toMatch(/HTTP 500/);
   });
 });
 
@@ -382,5 +385,80 @@ describe("serveur local sans clef", () => {
     const headers = (calls()[0]?.[1] as { headers: Record<string, string> })
       .headers;
     expect(headers["authorization"]).toBeUndefined();
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * Surcharge passagere du fournisseur
+ *
+ * Constate en execution reelle le 2026-09-09 : Gemini a rendu
+ *
+ *   HTTP 503 — "This model is currently experiencing high demand. Spikes in
+ *   demand are usually temporary. Please try again later."
+ *
+ * au milieu d'un pipeline, apres que le Veilleur et l'Analyste avaient deja
+ * abouti. Le client n'a pas reessaye : sa detection de reprise exigeait un
+ * vocabulaire de QUOTA (`rate limit`, `tokens per minute`), absent ici.
+ *
+ * Une surcharge passagere n'est pas un quota depasse, et le fournisseur dit
+ * lui-meme qu'elle est temporaire. Abandonner tout un pipeline — donc les
+ * appels deja payes des etapes precedentes — parce qu'un serveur etait charge
+ * une seconde est un gaspillage evitable.
+ * ---------------------------------------------------------------------- */
+
+describe("surcharge passagere (503) : le client reessaie", () => {
+  const clientTest = (audit: AuditLog) =>
+    new OpenAiCompatibleLlmClient({
+      providerName: "test",
+      baseUrl: "https://api.test.local/v1",
+      model: "modele-test",
+      audit,
+      rateLimitRetries: 2,
+      // Temporisation reduite : une reprise reelle attend cinq secondes, ce qui
+      // ferait expirer le test. On teste ainsi le VRAI code de temporisation,
+      // pas une horloge simulee.
+      rateLimitBaseDelayMs: 1,
+    });
+
+  it("reessaie apres un 503 de surcharge, et aboutit", async () => {
+    const audit = new AuditLog({ dir: workDir });
+    const { calls } = stubResponses([
+      {
+        ok: false,
+        status: 503,
+        body: '{"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary."}}',
+      },
+      { body: completion(JSON.stringify({ verdict: "ok", note: "conforme" })) },
+    ]);
+
+    await expect(clientTest(audit).structured(request)).resolves.toBeDefined();
+    expect(calls()).toHaveLength(2);
+  });
+
+  it("borne les reprises au lieu de boucler", async () => {
+    // Un fournisseur durablement sature ne doit pas retenir le pipeline
+    // indefiniment : mieux vaut un echec franc qu'une attente sans fin.
+    const audit = new AuditLog({ dir: workDir });
+    const { calls } = stubResponses([
+      { ok: false, status: 503, body: "high demand" },
+    ]);
+
+    await expect(clientTest(audit).structured(request)).rejects.toThrow(/503/);
+    expect(calls()).toHaveLength(3); // 1 tentative + 2 reprises
+  });
+
+  it("ne consomme PAS les reprises de surcharge sur une erreur definitive", async () => {
+    // 400 : la requete est mauvaise, la rejouer telle quelle donnerait le meme
+    // resultat. Le client fait UNE reprise et une seule — le repli documente du
+    // format le plus contraignant vers le plus permissif, au cas ou le
+    // fournisseur refuserait le premier. Aucune temporisation de surcharge :
+    // deux appels, la ou un 503 en produirait trois.
+    const audit = new AuditLog({ dir: workDir });
+    const { calls } = stubResponses([
+      { ok: false, status: 400, body: '{"error":{"message":"modele inconnu"}}' },
+    ]);
+
+    await expect(clientTest(audit).structured(request)).rejects.toThrow(/400/);
+    expect(calls()).toHaveLength(2);
   });
 });

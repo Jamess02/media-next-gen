@@ -58,6 +58,15 @@ export interface OpenAiCompatibleConfig {
   enforcesSchema?: boolean;
   /** Nouvelles tentatives apres un refus pour quota. 3 par defaut. */
   rateLimitRetries?: number;
+  /**
+   * Palier de base de la temporisation, en millisecondes.
+   *
+   * Surchargeable pour les tests : une reprise reelle attend plusieurs
+   * secondes, ce qui ferait expirer un test unitaire. Le rendre injectable
+   * vaut mieux que de simuler les horloges — on teste alors le vrai code de
+   * temporisation, pas un substitut.
+   */
+  rateLimitBaseDelayMs?: number;
   audit: AuditLog;
   timeoutMs?: number;
   maxTokens?: number;
@@ -98,6 +107,7 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
       repairAttempts: config.repairAttempts ?? 2,
       enforcesSchema: config.enforcesSchema ?? false,
       rateLimitRetries: config.rateLimitRetries ?? 3,
+      rateLimitBaseDelayMs: config.rateLimitBaseDelayMs ?? 5_000,
       ...(config.apiKey === undefined ? {} : { apiKey: config.apiKey }),
     };
   }
@@ -286,7 +296,12 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
       text = await readCapped(response, this.config.providerName, url);
       if (response.ok) break;
 
-      const attente = retryDelayMs(response, text, essai);
+      const attente = retryDelayMs(
+        response,
+        text,
+        essai,
+        this.config.rateLimitBaseDelayMs,
+      );
       if (attente === undefined || essai >= this.config.rateLimitRetries) {
         const trop = /Limit\s+(\d+)[,\s]+Requested\s+(\d+)/i.exec(text);
         const conseil =
@@ -442,12 +457,29 @@ function retryDelayMs(
   response: Response,
   body: string,
   essai: number,
+  baseMs = 5_000,
 ): number | undefined {
   const quota =
     response.status === 429 ||
     ((response.status === 413 || response.status === 503) &&
       /rate.?limit|tokens per minute|TPM|quota|too many requests/i.test(body));
-  if (!quota) return undefined;
+
+  // SURCHARGE PASSAGERE, distincte d'un quota depasse.
+  //
+  // Constate le 2026-09-09 : Gemini a rendu 503 « This model is currently
+  // experiencing high demand. Spikes in demand are usually temporary » au
+  // milieu d'un pipeline, apres que le Veilleur et l'Analyste avaient abouti.
+  // Le client n'a pas reessaye, parce que sa detection exigeait un vocabulaire
+  // de QUOTA — absent ici.
+  //
+  // Le fournisseur dit lui-meme que c'est temporaire. Abandonner tout un
+  // pipeline — donc les appels deja payes des etapes precedentes — parce qu'un
+  // serveur etait charge une seconde est un gaspillage evitable.
+  //
+  // 529 est la variante utilisee par Anthropic pour la meme situation.
+  const surcharge = response.status === 503 || response.status === 529;
+
+  if (!quota && !surcharge) return undefined;
 
   // Distinction essentielle : un quota TEMPORAIREMENT epuise se recharge, une
   // requete plus grosse que le quota TOTAL ne passera jamais. Les fournisseurs
@@ -486,7 +518,9 @@ function retryDelayMs(
 
   // Repli : progression jusqu'a un peu plus d'une minute, car les quotas les
   // plus courants se rechargent a la minute.
-  return [5_000, 20_000, 65_000][essai] ?? 65_000;
+  // Progression jusqu a un peu plus d une minute : les quotas les plus
+  // courants se rechargent a la minute.
+  return [baseMs, baseMs * 4, baseMs * 13][essai] ?? baseMs * 13;
 }
 
 function finishReason(payload: unknown): string | undefined {
