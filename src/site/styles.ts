@@ -13,8 +13,53 @@
  * rendue visible d'un coup d'oeil.
  */
 
+/**
+ * Theme sombre, applicable sous DEUX racines differentes.
+ *
+ * POURQUOI UNE FONCTION ET NON DEUX BLOCS COPIES. Le mode sombre doit
+ * s'appliquer dans deux situations qui n'ont pas le meme selecteur :
+ *
+ *  - le systeme est en sombre et le lecteur n'a rien choisi
+ *    (`:root:not([data-theme="light"])`, sous media query) ;
+ *  - le lecteur a explicitement choisi sombre (`:root[data-theme="dark"]`),
+ *    quel que soit son systeme.
+ *
+ * Deux blocs recopies divergeraient a la premiere couleur ajoutee — et le
+ * defaut ne se verrait que dans l'un des deux cas, donc rarement, donc tard.
+ *
+ * `color-scheme` n'est pas decoratif : sans lui, barres de defilement et
+ * controles de formulaire restent clairs sur une page entierement sombre.
+ */
+function themeSombre(racine: string): string {
+  return `
+${racine} {
+  color-scheme: dark;
+  --encre: #ececec;
+  --papier: #101010;
+  --gris: #9a9a9a;
+  --gris-clair: #6f6f6f;
+  --trait: #2b2b2b;
+  --fond-doux: #191919;
+  --accent: #7aa7ff;
+  --fort: #6dd39a;
+  --moyen: #e0a45c;
+  --faible: #f08a80;
+}
+${racine} .badge.niveau-4, ${racine} .badge.niveau-3 { background: #14251b; border-color: #24402e; }
+${racine} .badge.niveau-2 { background: #251d10; border-color: #40331c; }
+${racine} .badge.niveau-1, ${racine} .badge.niveau-0 { background: #261615; border-color: #422523; }
+${racine} .claim:target { background: #131a26; }
+${racine} .relecture .note { color: #c9c9c9; }
+${racine} .divulgation li { color: #d0d0d0; }
+/* Le gris fonce des listes reste lisible sur papier blanc, pas sur fond
+   sombre : sans cette reprise, les incertitudes declarees disparaissaient. */
+${racine} .avertissement li { color: #c4c4c4; }
+`;
+}
+
 export const STYLES = `
 :root {
+  color-scheme: light;
   --encre: #111;
   --papier: #fff;
   --gris: #666;
@@ -269,13 +314,7 @@ article .dateline .revise { color: var(--moyen); }
   line-height: 1.6;
 }
 
-@media (prefers-color-scheme: dark) {
-  .relecture .note { color: #c9c9c9; }
-  .divulgation li { color: #d0d0d0; }
-  /* Le gris fonce des listes reste lisible sur papier blanc, pas sur le fond
-     sombre : sans cette reprise, les incertitudes declarees disparaissaient. */
-  .avertissement li { color: #c4c4c4; }
-}
+/* Les reprises sombres sont toutes dans themeSombre(), en fin de feuille. */
 
 /* --- Divers ------------------------------------------------------------- */
 
@@ -306,22 +345,41 @@ footer.site {
   .enveloppe { padding: 0 16px 64px; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --encre: #ececec;
-    --papier: #101010;
-    --gris: #9a9a9a;
-    --gris-clair: #6f6f6f;
-    --trait: #2b2b2b;
-    --fond-doux: #191919;
-    --accent: #7aa7ff;
-    --fort: #6dd39a;
-    --moyen: #e0a45c;
-    --faible: #f08a80;
-  }
-  .badge.niveau-4, .badge.niveau-3 { background: #14251b; border-color: #24402e; }
-  .badge.niveau-2 { background: #251d10; border-color: #40331c; }
-  .badge.niveau-1, .badge.niveau-0 { background: #261615; border-color: #422523; }
-  .claim:target { background: #131a26; }
+/* --- Bascule de theme --------------------------------------------------- */
+
+.theme-bascule {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: lowercase;
+  color: var(--gris);
+  background: transparent;
+  border: 1px solid var(--trait);
+  border-radius: 3px;
+  padding: 4px 9px;
+  cursor: pointer;
+  line-height: 1.4;
 }
+.theme-bascule:hover { color: var(--encre); border-color: var(--gris-clair); }
+.theme-bascule:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+header.site { position: relative; }
+
+/* --- Theme sombre -------------------------------------------------------- */
+/*
+   Deux applications, une seule definition (voir \`themeSombre\`).
+
+   La media query est GARDEE par \`:not([data-theme="light"])\`. Sans cette
+   garde, un lecteur sur machine sombre qui choisit « clair » n'obtiendrait
+   rien : la media query continuerait de gagner, et la bascule paraitrait
+   cassee alors qu'elle fonctionne.
+*/
+@media (prefers-color-scheme: dark) {
+${themeSombre(':root:not([data-theme="light"])')}
+}
+
+/* Choix explicite du lecteur : l'emporte sur le reglage systeme, dans les
+   deux sens. */
+${themeSombre(':root[data-theme="dark"]')}
 `;

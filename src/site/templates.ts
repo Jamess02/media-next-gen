@@ -54,6 +54,79 @@ interface PageOptions {
   path?: string;
 }
 
+/**
+ * Decision de theme, prise AVANT le premier pixel.
+ *
+ * Ce script est dans le `<head>`, et c'est la seule chose qui compte ici. Place
+ * en fin de `<body>`, il repeindrait la page apres son affichage : flash blanc
+ * a chaque navigation, sur un site fait de pages statiques ou chaque lien est
+ * un chargement complet.
+ *
+ * Le `try/catch` n'est pas une precaution de style. En navigation privee, ou
+ * quand le navigateur bloque le stockage de site, `localStorage` LEVE au lieu
+ * de rendre `null` : sans lui, la page ne s'afficherait pas du tout — un mode
+ * sombre casserait le site pour ceux qui protegent leur vie privee.
+ *
+ * Trois etats, et `systeme` est le defaut : ne rien ecrire sur la racine laisse
+ * la media query decider, ce qui est le comportement attendu par defaut.
+ */
+const THEME_INIT = `<script>
+(function () {
+  try {
+    var choix = localStorage.getItem("theme");
+    if (choix === "dark" || choix === "light") {
+      document.documentElement.setAttribute("data-theme", choix);
+    }
+  } catch (e) {
+    /* Stockage indisponible : on suit le reglage systeme. */
+  }
+})();
+</script>`;
+
+/**
+ * Cablage du bouton. En fin de `<body>` : il n'a rien a peindre, seulement a
+ * reagir a un clic, et le DOM doit exister.
+ *
+ * Le cycle est systeme -> sombre -> clair -> systeme. Revenir au systeme est
+ * un etat a part entiere : sans lui, un lecteur qui a essaye la bascule ne
+ * pourrait plus jamais suivre son reglage machine.
+ */
+const THEME_BASCULE = `<script>
+(function () {
+  var bouton = document.getElementById("theme-bascule");
+  if (!bouton) return;
+  var ETATS = ["systeme", "dark", "light"];
+  var LIBELLES = { systeme: "theme : systeme", dark: "theme : sombre", light: "theme : clair" };
+
+  function lire() {
+    try {
+      var v = localStorage.getItem("theme");
+      return v === "dark" || v === "light" ? v : "systeme";
+    } catch (e) {
+      return "systeme";
+    }
+  }
+
+  function appliquer(etat) {
+    if (etat === "systeme") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", etat);
+    bouton.textContent = LIBELLES[etat];
+    bouton.setAttribute("aria-label", "Changer le theme d'affichage. Actuel : " + LIBELLES[etat]);
+    try {
+      if (etat === "systeme") localStorage.removeItem("theme");
+      else localStorage.setItem("theme", etat);
+    } catch (e) {
+      /* Stockage indisponible : le choix vaut pour cette page seulement. */
+    }
+  }
+
+  appliquer(lire());
+  bouton.addEventListener("click", function () {
+    appliquer(ETATS[(ETATS.indexOf(lire()) + 1) % ETATS.length]);
+  });
+})();
+</script>`;
+
 export function page({
   title,
   depth = 0,
@@ -93,7 +166,10 @@ ${canonique === undefined ? "" : `<link rel="canonical" href="${escapeHtml(canon
 <meta property="og:description" content="${escapeHtml(resume)}">
 ${canonique === undefined ? "" : `<meta property="og:url" content="${escapeHtml(canonique)}">`}
 <meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101010" media="(prefers-color-scheme: dark)">
 <style>${STYLES}</style>
+${THEME_INIT}
 </head>
 <body>
 <div class="enveloppe">
@@ -101,6 +177,8 @@ ${canonique === undefined ? "" : `<meta property="og:url" content="${escapeHtml(
   <a class="titre" href="${root}/index.html">${escapeHtml(SITE_NAME)}</a>
   <div class="accroche">${escapeHtml(SITE_TAGLINE)}</div>
   <nav class="site">${nav}</nav>
+  <button type="button" id="theme-bascule" class="theme-bascule"
+    aria-label="Changer le theme d'affichage">theme</button>
 </header>
 ${body}
 <footer class="site">
@@ -109,6 +187,7 @@ ${body}
   Ne constitue ni un conseil d'investissement, ni une recommandation politique ou electorale (EP-007).
 </footer>
 </div>
+${THEME_BASCULE}
 </body>
 </html>`;
 }
