@@ -124,6 +124,37 @@ describe("§5.3 — langue de redaction", () => {
     expect(ruleNames(a)).not.toContain("REDACTION_NOT_FRENCH");
   });
 
+  it("ne compte pas une CITATION entre guillemets comme de la redaction", () => {
+    // Citer une source anglophone est le travail normal : la traduction ou la
+    // reprise entre guillemets font partie du metier. Compter la citation
+    // reviendrait a interdire de citer, ce qui est le contraire du but.
+    const a = article({
+      claims: [
+        claim({
+          text:
+            "La Reserve federale a publie le releve suivant : " +
+            "« The total assets of the Federal Reserve were reported at that " +
+            "date and the series that is used has been revised since then ».",
+        }),
+      ],
+    });
+    expect(ruleNames(a)).not.toContain("REDACTION_NOT_FRENCH");
+  });
+
+  it("MESURE quand meme un texte presque entierement cite", () => {
+    // Sinon la regle s eviterait en encadrant tout l article de guillemets.
+    const a = article({
+      claims: [
+        claim({
+          text:
+            "« The total assets of the Federal Reserve were reported at that " +
+            "date, and the series that is used here has been revised since " +
+            "then, which is why the dates that are shown matter »",
+        }),
+      ],
+    });
+    expect(ruleNames(a)).toContain("REDACTION_NOT_FRENCH");
+  });
   it("ne se prononce pas sur un texte trop court pour etre mesure", () => {
     // Un titre de trois mots dont un est "the" afficherait 33 % : la densite
     // n'a pas de sens a cette echelle.

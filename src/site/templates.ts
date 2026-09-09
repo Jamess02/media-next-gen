@@ -39,6 +39,36 @@ export function siteUrl(): string {
   const brut =
     process.env["MEDIA_SITE_URL"]?.trim() ||
     "https://jamess02.github.io/media-next-gen";
+
+  let parsee: URL;
+  try {
+    parsee = new URL(brut);
+  } catch {
+    throw new Error(
+      `MEDIA_SITE_URL n'est pas une URL absolue : "${brut}". Attendu par ` +
+        `exemple https://media.exemple.fr — le canonique, le flux et le sitemap ` +
+        `exigent des adresses absolues.`,
+    );
+  }
+
+  // UNE SEULE VARIABLE, TOUT LE SITE. Cette valeur alimente le canonique, les
+  // metadonnees de partage, le flux RSS et le sitemap. Renseignee en clair,
+  // elle ferait basculer toutes ces adresses d'un coup — et un lecteur qui
+  // suit un lien du flux quitterait le chiffrement sans le savoir.
+  //
+  // La boucle locale fait exception : les navigateurs la traitent comme un
+  // contexte SUR, le trafic ne quittant pas la machine. C'est ce qui permet de
+  // verifier les URLs absolues sans deployer.
+  const local = /^(127\.0\.0\.1|localhost|\[::1\])$/i.test(parsee.hostname);
+  if (parsee.protocol !== "https:" && !local) {
+    throw new Error(
+      `MEDIA_SITE_URL doit etre en https (recu : "${brut}"). Cette valeur ` +
+        `alimente le canonique, le flux RSS et le sitemap : en clair, elle ` +
+        `retrograderait tout le site a la fois. Seule la boucle locale est ` +
+        `acceptee en http, les navigateurs la tenant pour un contexte sur.`,
+    );
+  }
+
   return brut.replace(/\/+$/, "");
 }
 

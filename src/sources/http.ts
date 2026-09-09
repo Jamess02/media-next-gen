@@ -115,6 +115,29 @@ export async function safeFetch(
       );
     }
 
+    // HTTPS EXIGE, et ce n'est pas une precaution generale.
+    //
+    // Interroger une source en clair, c'est laisser un tiers sur le chemin
+    // modifier la donnee AVANT qu'elle fonde une claim. Pour un media dont
+    // toute la promesse est la preuve, c'est disqualifiant : on publierait
+    // comme observe ce qu'un intermediaire a ecrit, et le journal d'audit
+    // archiverait fidelement la falsification.
+    //
+    // Le controle porte sur CHAQUE saut : le cas realiste n'est pas une source
+    // en clair — le catalogue n'en contient aucune — mais une source en https
+    // qui redirige vers du clair.
+    if (!cible.toLowerCase().startsWith("https:")) {
+      throw new SourceFetchError(
+        sourceName,
+        cible,
+        saut === 0
+          ? "source en clair refusee : une donnee collectee en http peut etre " +
+            "alteree en transit, donc ne peut pas fonder une claim (§2)"
+          : "redirection refusee : retrogradation vers du clair (http), la " +
+            "donnee cessant d'etre protegee en transit",
+      );
+    }
+
     let reponse: Response;
     try {
       reponse = await fetch(cible, {

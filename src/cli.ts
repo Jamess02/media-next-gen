@@ -407,6 +407,13 @@ async function previewCommand(port: number, drafts: boolean): Promise<void> {
   console.log("  Machines : /feed.xml  /sitemap.xml  /robots.txt");
   console.log("");
   console.log("Ecoute sur la boucle locale uniquement. Ctrl+C pour arreter.");
+  console.log("");
+  // Question posee, donc reponse ecrite : sinon elle se repose a chaque fois.
+  console.log("En http, et c'est voulu : les navigateurs traitent 127.0.0.1");
+  console.log("comme un contexte SUR — le trafic ne quitte pas la machine. Un");
+  console.log("certificat auto-signe n'ajouterait rien et entrainerait a cliquer");
+  console.log("sur les avertissements. Le site PUBLIE, lui, est en https (voir");
+  console.log("MEDIA_SITE_URL, qui refuse desormais toute autre valeur).");
 }
 
 /**

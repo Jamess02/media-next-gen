@@ -51,10 +51,23 @@ interface ClaimsPayload {
 const parse = <T>(request: { user: string }): T =>
   JSON.parse(request.user) as T;
 
-/** Tronque un resume pour en faire une phrase de claim lisible. */
-function toClaimText(resume: string): string {
-  const trimmed = resume.trim();
-  return trimmed.endsWith(".") ? trimmed : `${trimmed}.`;
+/**
+ * Fait une phrase de claim a partir d'un resume de source.
+ *
+ * ENCADRE PAR DES GUILLEMETS ET ATTRIBUE. Un responder simule ne sait pas
+ * traduire : recopier tel quel le resume d'une source anglophone produisait une
+ * claim en anglais, que `REDACTION_NOT_FRENCH` bloquait a juste titre — au
+ * point de rendre inutilisable `--mode=mock --real-sources` sur tout sujet
+ * couvert par la Fed, la BoJ, Al Jazeera ou Haaretz.
+ *
+ * La sortie est donc ce qu'un redacteur honnete ecrit face a une source qu'il
+ * ne traduit pas : une attribution en francais, puis la citation entre
+ * guillemets. Ce n'est pas un contournement de la regle — c'est la forme que la
+ * regle reconnait, parce que citer est legitime et recopier ne l'est pas.
+ */
+function toClaimText(source: string, resume: string): string {
+  const trimmed = resume.trim().replace(/\s+/g, " ");
+  return `Releve publie par ${source}, cite sans traduction : « ${trimmed} ».`;
 }
 
 /**
@@ -165,7 +178,7 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
       candidates: events.map((event, index) => ({
         id: `claim-${index + 1}`,
         type: chooseClaimType(event),
-        text: toClaimText(event.resume),
+        text: toClaimText(event.source, event.resume),
         // Plafonne a 2 : verifier qu'une source soutient PRECISEMENT une
         // affirmation demande un jugement qu'un responder simule n'a pas.
         proposed_evidence_level: 2,

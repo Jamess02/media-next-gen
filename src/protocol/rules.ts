@@ -532,7 +532,32 @@ function ruleRedactionInFrench(article: Article): Violation[] {
   ];
 
   return surfaces.flatMap(({ text, path }) => {
-    const mots = text.toLowerCase().match(/\p{L}+/gu) ?? [];
+    // LA CITATION N'EST PAS DE LA REDACTION. Reprendre entre guillemets le
+    // libelle d'une source anglophone est le travail normal ; compter ces mots
+    // reviendrait a interdire de citer, ce qui est le contraire du but.
+    //
+    // L'evasion a empecher est precise : encadrer TOUT le texte de guillemets
+    // pour echapper au controle. Le critere est donc la COUVERTURE, pas le
+    // reste — un texte couvert a plus de 90 % par des citations n'est pas un
+    // texte cite, c'est une citation deguisee en texte.
+    //
+    // Premiere version fautive, corrigee ici : le repli se declenchait quand il
+    // restait moins de 12 mots hors citation. Il rattrapait alors les
+    // attributions COURTES et legitimes — « Releve publie par FRED, cite sans
+    // traduction : "..." » en compte onze — donc exactement les formulations
+    // que la regle devrait encourager.
+    const cite = text.match(/[«"“][^»"”]*[»"”]/g) ?? [];
+    const couverture =
+      text.length === 0
+        ? 0
+        : cite.reduce((n, c) => n + c.length, 0) / text.length;
+
+    const mesurable =
+      couverture >= 0.9
+        ? text
+        : text.replace(/[«"“][^»"”]*[»"”]/g, " ");
+
+    const mots = mesurable.toLowerCase().match(/\p{L}+/gu) ?? [];
     // En dessous d'une dizaine de mots, la densite n'a pas de sens : un titre
     // de trois mots dont un est "the" afficherait 33 %.
     if (mots.length < 12) return [];
@@ -662,6 +687,44 @@ function ruleUnsourcedSuperlative(article: Article): Violation[] {
 }
 
 /* -------------------------------------------------------------------------
+ * §2 — une source citee en clair est verifiable, mais alterable
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Signale les sources citees en `http://`.
+ *
+ * Le §2 definit le niveau 2 comme « accessible par une URL verifiable ». Une
+ * adresse en clair est joignable, pas verifiable au sens fort : ce que le
+ * lecteur consulte peut avoir ete modifie en transit, donc ne correspond pas
+ * necessairement a ce que nous avons observe. La chaine de preuve se rompt au
+ * dernier maillon, celui du lecteur.
+ *
+ * AVERTISSEMENT et non blocage. La collecte, elle, REFUSE le clair
+ * (`sources/http.ts`) : par le pipeline, une telle URL ne peut plus arriver.
+ * Cette regle couvre ce qui echappe au pipeline — un article ancien, un
+ * fichier repris a la main — et certaines archives publiques n'existent qu'en
+ * clair : les perdre appauvrirait la preuve plus que le risque ne la menace.
+ * Le relecteur tranche.
+ */
+function ruleInsecureSourceUrl(article: Article): Violation[] {
+  return article.claims.flatMap((claim, i) =>
+    claim.sources
+      .filter((s) => s.url.toLowerCase().startsWith("http:"))
+      .map((s) => ({
+        rule: "INSECURE_SOURCE_URL",
+        clause: "§2",
+        severity: "warning" as const,
+        message:
+          `La claim "${claim.id}" cite ${s.url} en clair. Un lecteur qui suit ce ` +
+          `lien peut recevoir une page alteree en transit : la verification ne ` +
+          `porte plus sur ce que nous avons observe. Verifier si la source ` +
+          `existe en https.`,
+        path: `claims[${i}].sources`,
+      })),
+  );
+}
+
+/* -------------------------------------------------------------------------
  * Claims qui parlent du jeu de donnees plutot que du monde
  * ---------------------------------------------------------------------- */
 
@@ -722,6 +785,7 @@ const DOCUMENT_RULES = [
   ruleRedactionInFrench,
   ruleScenarioHasCondition,
   ruleUnsourcedSuperlative,
+  ruleInsecureSourceUrl,
   ruleClaimAboutDataset,
   ruleRevisionDate,
   ruleRevisionIsLogged,
