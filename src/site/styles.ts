@@ -345,6 +345,60 @@ footer.site {
   .enveloppe { padding: 0 16px 64px; }
 }
 
+/* --- Tableau des chiffres traites ---------------------------------------- */
+/*
+   Le conteneur defile, pas la PAGE. Sept colonnes ne tiennent pas sur un
+   telephone, et un debordement horizontal de la page casse la lecture du texte
+   partout ailleurs.
+*/
+.tableau-enveloppe { overflow-x: auto; margin: 0 0 26px; }
+
+table.chiffres {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14.5px;
+}
+table.chiffres caption {
+  caption-side: top;
+  text-align: left;
+  color: var(--gris);
+  font-size: 13px;
+  line-height: 1.5;
+  padding-bottom: 10px;
+}
+table.chiffres th, table.chiffres td {
+  border-bottom: 1px solid var(--trait);
+  padding: 8px 12px 8px 0;
+  text-align: left;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+table.chiffres thead th {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: lowercase;
+  color: var(--gris);
+  font-weight: 400;
+  border-bottom: 1px solid var(--encre);
+}
+table.chiffres tbody th { font-weight: 600; white-space: normal; }
+table.chiffres .rang { font-family: var(--mono); color: var(--gris-clair); }
+/* Les valeurs sont alignees a droite et en chasse fixe : c'est ce qui permet de
+   comparer des ordres de grandeur d'un coup d'oeil, ce qui est tout l'objet du
+   tableau. */
+table.chiffres .valeur {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+table.chiffres .periode { font-family: var(--mono); font-size: 12.5px; color: var(--gris); }
+.badge.type {
+  background: var(--fond-doux);
+  border: 1px solid var(--trait);
+  color: var(--gris);
+}
+
 /* --- Bascule de theme --------------------------------------------------- */
 
 .theme-bascule {

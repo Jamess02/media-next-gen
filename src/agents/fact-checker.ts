@@ -284,6 +284,11 @@ export function applyVerdicts(
       text,
       type,
       evidence_level: level,
+      // Le chiffre structure traverse le gate INCHANGE. Le fact-checker peut
+      // degrader un niveau ou requalifier un type ; il n a aucune raison de
+      // toucher a une valeur mesuree, et lui en donner la possibilite
+      // ouvrirait une porte que le clamp monotone ferme partout ailleurs.
+      ...(candidate.figure === undefined ? {} : { figure: candidate.figure }),
       sources: candidate.sources.map((s) => ({
         url: s.url,
         tier: s.tier,

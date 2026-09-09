@@ -18,6 +18,7 @@ import {
   type SourceTier,
 } from "../protocol/constants.js";
 import type { ReviewRecord } from "../editorial/validation.js";
+import { formatFigure, rankedFigures } from "../protocol/figures.js";
 import { interestsForUrls } from "../protocol/interests.js";
 import type { Article, Claim } from "../protocol/schema.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
@@ -333,6 +334,62 @@ function renderDisclosures(article: Article): string {
 </div>`;
 }
 
+/**
+ * Tableau comparatif, classe par ordre decroissant.
+ *
+ * Le rang vient de `rankedFigures`, donc de `sort`. Le modele decide de ce
+ * qu'il mesure ; il ne decide pas qui arrive premier — et il ne peut pas se
+ * tromper de valeur, celle-ci venant d'un champ structure et non d'une phrase.
+ *
+ * ACCESSIBILITE, ET CE N'EST PAS DECORATIF. Un `<caption>` dit a quoi sert le
+ * tableau avant qu'on le parcoure, et `scope="col"` rattache chaque cellule a
+ * son en-tete : sans lui, un lecteur d'ecran enonce une suite de nombres sans
+ * dire de quoi ils sont la mesure — soit exactement l'inverse du but.
+ *
+ * Le tableau defile horizontalement dans son propre conteneur : sept colonnes
+ * ne tiennent pas sur un telephone, et laisser la PAGE defiler lateralement
+ * casse la lecture du texte.
+ */
+function renderFigureTable(article: Article): string {
+  const lignes = rankedFigures(article);
+  // Un classement d'un seul element n'est pas un classement.
+  if (lignes.length < 2) return "";
+
+  const unite = lignes[0]?.unit ?? "";
+  const corps = lignes
+    .map(
+      (f, i) => `<tr>
+    <td class="rang">${i + 1}</td>
+    <th scope="row">${escapeHtml(f.label)}</th>
+    <td class="valeur">${escapeHtml(formatFigure(f.value))}</td>
+    <td class="periode">${escapeHtml(f.as_of)}</td>
+    <td><span class="badge type">${escapeHtml(f.type)}</span></td>
+    <td>${badgeNiveau(f.evidenceLevel)}</td>
+    <td><a class="ref" href="#${encodeURIComponent(f.claimId)}">${escapeHtml(f.claimId)}</a></td>
+  </tr>`,
+    )
+    .join("");
+
+  return `<div class="section">chiffres traites</div>
+<div class="tableau-enveloppe">
+<table class="chiffres">
+  <caption>Classement decroissant, unite commune : ${escapeHtml(unite)}. Le rang est calcule par le pipeline, jamais redige. Le type et le niveau de preuve figurent parce qu'aligner deux nombres n'en fait pas des mesures equivalentes.</caption>
+  <thead>
+    <tr>
+      <th scope="col">#</th>
+      <th scope="col">mesure</th>
+      <th scope="col">valeur</th>
+      <th scope="col">periode</th>
+      <th scope="col">type</th>
+      <th scope="col">preuve</th>
+      <th scope="col">claim</th>
+    </tr>
+  </thead>
+  <tbody>${corps}</tbody>
+</table>
+</div>`;
+}
+
 export function articlePage(
   article: Article,
   review?: ReviewRecord,
@@ -382,6 +439,7 @@ export function articlePage(
   ${renderDisclosures(article)}
   ${avertissement}
   <div class="corps">${corps}</div>
+  ${renderFigureTable(article)}
   <div class="section">preuves</div>
   ${article.claims.map(renderClaim).join("")}
   ${renderReview(review)}

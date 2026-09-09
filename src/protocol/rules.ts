@@ -30,6 +30,7 @@ import {
   mentionsInterest,
   type DeclaredInterest,
 } from "./interests.js";
+import { figureUnits } from "./figures.js";
 import type { Article, Claim } from "./schema.js";
 
 export type Severity = "blocking" | "warning";
@@ -687,6 +688,81 @@ function ruleUnsourcedSuperlative(article: Article): Violation[] {
 }
 
 /* -------------------------------------------------------------------------
+ * EP-006 — on ne range pas des unites differentes
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Bloque un article dont les chiffres structures n'ont pas la meme unite.
+ *
+ * EP-006 refuse la fusion silencieuse de mesures non comparables, et un tableau
+ * classe est exactement cela : aligner « 2,92 % » et « 6 737 204 millions de
+ * dollars » dans une colonne triee AFFIRME que le second est plus grand que le
+ * premier. C'est une erreur de categorie, pas une imprecision.
+ *
+ * BLOQUANT et non avertissement : contrairement a un superlatif discutable, il
+ * n'existe aucun cas ou classer des unites differentes serait correct. La
+ * correction est claire — deux tableaux, ou aucun.
+ */
+function ruleFigureUnitsComparable(article: Article): Violation[] {
+  const unites = figureUnits(article);
+  if (unites.length <= 1) return [];
+
+  return [
+    {
+      rule: "FIGURE_UNIT_MISMATCH",
+      clause: "EP-006",
+      severity: "blocking",
+      message:
+        `Les chiffres de l'article portent ${unites.length} unites differentes ` +
+        `(${unites.join(", ")}). Les classer dans un meme tableau affirmerait ` +
+        `une comparabilite qui n'existe pas. Decouper en plusieurs articles, ou ` +
+        `retirer le chiffre structure des claims qui ne se comparent pas.`,
+      path: "claims",
+    },
+  ];
+}
+
+/* -------------------------------------------------------------------------
+ * §5.3 — un tableau ecrit a la main echappe au tri et a la verification
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Une ligne de tableau markdown : au moins deux barres verticales encadrant du
+ * contenu, ou une ligne de separation `| --- |`.
+ */
+const LIGNE_DE_TABLEAU = /^\s*\|.*\|\s*$/m;
+
+/**
+ * Signale un tableau redige dans le corps.
+ *
+ * DEUX RAISONS, dont une seule est cosmetique. Le rendu du site ne connait pas
+ * les tableaux markdown — ils sortiraient en texte litteral, avec leurs barres.
+ * Mais surtout : un tableau redige echappe au tri deterministe et au controle
+ * d'unite, donc reintroduit precisement les deux erreurs que le champ structure
+ * elimine.
+ *
+ * AVERTISSEMENT : le champ `figure` peut ne pas convenir a ce que le redacteur
+ * voulait montrer, et un tableau maladroit vaut mieux qu'une information
+ * supprimee. Le relecteur tranche.
+ */
+function ruleHandwrittenTable(article: Article): Violation[] {
+  if (!LIGNE_DE_TABLEAU.test(article.body)) return [];
+  return [
+    {
+      rule: "HANDWRITTEN_TABLE",
+      clause: "§5.3",
+      severity: "warning",
+      message:
+        "Le corps contient un tableau redige a la main. Le site ne rend pas les " +
+        "tableaux markdown, et un tableau ecrit echappe au tri deterministe comme " +
+        "au controle d'unite. Renseigner le champ `figure` des claims concernees : " +
+        "le tableau est alors construit et classe par le code.",
+      path: "body",
+    },
+  ];
+}
+
+/* -------------------------------------------------------------------------
  * §2 — une source citee en clair est verifiable, mais alterable
  * ---------------------------------------------------------------------- */
 
@@ -786,6 +862,8 @@ const DOCUMENT_RULES = [
   ruleScenarioHasCondition,
   ruleUnsourcedSuperlative,
   ruleInsecureSourceUrl,
+  ruleFigureUnitsComparable,
+  ruleHandwrittenTable,
   ruleClaimAboutDataset,
   ruleRevisionDate,
   ruleRevisionIsLogged,
@@ -935,6 +1013,58 @@ export function detectUngroundedFigures(
           `Verifier que les sources citees soutiennent bien ces chiffres — le §2 ` +
           `exige qu'une source soutienne precisement l'affirmation.`,
         path: `claims.${claim.id}.text`,
+      },
+    ];
+  });
+}
+
+/**
+ * §2 — le chiffre STRUCTURE doit se retrouver dans le materiau source.
+ *
+ * Distinct de `detectUngroundedFigures`, qui inspecte la PROSE d'une claim.
+ * Ici on verifie une valeur destinee au tableau — et le tableau est l'element
+ * le plus autoritaire de la page : aligne, chiffre, classe, il a la forme d'une
+ * donnee verifiee. Un nombre faux y pese donc plus lourd que dans une phrase,
+ * ou le lecteur garde une distance naturelle.
+ *
+ * Les `estimation` ne sont PAS exclues ici, contrairement au controle sur la
+ * prose. Une estimation reste un calcul a partir de valeurs sourcees : si sa
+ * valeur n'est ni dans les sources, ni un arrondi, ni un ecart entre deux
+ * valeurs, le relecteur doit pouvoir demander d'ou elle sort.
+ *
+ * AVERTISSEMENT : une agregation legitime (moyenne de plusieurs series,
+ * conversion d'unite) produit une valeur absente des sources. Bloquer
+ * interdirait de calculer ; signaler demande seulement de justifier.
+ */
+export function detectUngroundedStructuredFigures(
+  claims: readonly Claim[],
+  sourceTexts: readonly string[],
+): Violation[] {
+  const sourceValues = sourceTexts.flatMap(extractNumbers).map((f) => f.value);
+  // Sans materiau, tout serait signale : un controle qui crie au loup sur
+  // l'absence de donnees finit desactive.
+  if (sourceValues.length === 0) return [];
+
+  return claims.flatMap((claim) => {
+    const figure = claim.figure;
+    if (figure === undefined) return [];
+
+    const decimales = String(figure.value).split(".")[1]?.length ?? 0;
+    if (isGrounded({ value: figure.value, decimals: decimales }, sourceValues)) {
+      return [];
+    }
+
+    return [
+      {
+        rule: "UNGROUNDED_STRUCTURED_FIGURE",
+        clause: "§2",
+        severity: "warning" as const,
+        message:
+          `Le chiffre publie au tableau pour "${claim.id}" — ${figure.label} : ` +
+          `${figure.value} ${figure.unit} — n'apparait dans aucune observation ` +
+          `retenue. Verifier qu'il en est bien tire : le tableau donne a cette ` +
+          `valeur l'autorite d'une donnee verifiee.`,
+        path: `claims.${claim.id}.figure.value`,
       },
     ];
   });

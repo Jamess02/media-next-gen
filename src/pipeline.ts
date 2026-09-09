@@ -43,6 +43,7 @@ import {
   detectIllegalPromotions,
   detectUncollectedSources,
   detectUngroundedFigures,
+  detectUngroundedStructuredFigures,
   type Violation,
 } from "./protocol/rules.js";
 import { ArticleSchema, type Article } from "./protocol/schema.js";
@@ -321,10 +322,13 @@ export class EditorialPipeline {
     // d'observations, absents du contrat §7. L'alternative aurait ete de faire
     // circuler les sources jusqu'a l'article, ce qui aurait modifie le contrat
     // pour un besoin de diagnostic.
-    const ungrounded = detectUngroundedFigures(
-      gate.accepted,
-      retained.map((e) => e.resume),
-    );
+    const materiau = retained.map((e) => e.resume);
+    const ungrounded = [
+      ...detectUngroundedFigures(gate.accepted, materiau),
+      // Le tableau donne a un chiffre l autorite d une donnee verifiee : sa
+      // valeur est controlee separement de la prose qui l entoure.
+      ...detectUngroundedStructuredFigures(gate.accepted, materiau),
+    ];
     if (ungrounded.length > 0) {
       this.onStage(
         "redaction",

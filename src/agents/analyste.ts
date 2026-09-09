@@ -19,7 +19,7 @@ import {
   SOURCE_TIERS,
   type ArticleMode,
 } from "../protocol/constants.js";
-import type { RawEvent } from "../protocol/schema.js";
+import { FigureSchema, type RawEvent } from "../protocol/schema.js";
 import { Agent, asJson } from "./base.js";
 
 /**
@@ -45,6 +45,15 @@ export const AnalysteOutputSchema = z
             date_published: z.string().nullable(),
           }),
         ),
+        /**
+         * Chiffre comparable, quand la claim en porte un (§7 `figure`).
+         *
+         * ABSENT DE CE SCHEMA, il etait inatteignable : le format de reponse
+         * envoye au modele ne le contenait pas, donc aucun modele ne pouvait
+         * le produire — et le champ est reste vide en execution reelle alors
+         * que tout le reste de la chaine etait pret.
+         */
+        figure: FigureSchema.optional(),
       }),
     ),
     /** §5.2 — comparaison du narratif mediatique aux donnees observables. */
@@ -90,6 +99,31 @@ partiel est une faute editoriale, pas un detail.
 \`narrative_vs_data\` : ecart entre ce que raconte la presse et ce que montrent
 les donnees observables. Si la presse chiffre ce que les donnees ne chiffrent
 pas, dis-le.
+
+CHIFFRE STRUCTURE (\`figure\`) — a renseigner des que la claim porte une mesure.
+
+Quand une claim etablit une valeur chiffree comparable a d'autres, ajoute-lui
+un champ \`figure\` :
+
+  { "label": "PIB mondial", "value": 2.92, "unit": "%", "as_of": "2025" }
+
+Le pipeline en construit un TABLEAU classe par ordre decroissant. Tu decides ce
+qui est mesure ; tu ne decides pas du rang, qui est calcule.
+
+Regles, et elles sont strictes :
+- \`value\` est un NOMBRE, pas une chaine. Il est repris tel que la source le
+  publie, sans arrondi de confort : arrondir inventerait ou detruirait de la
+  precision (EP-005).
+- \`unit\` est obligatoire. Un nombre sans unite ne se compare pas, et un modele
+  confronte a un chiffre nu finit par ecrire "(unites)" — c'est arrive.
+- \`as_of\` est la periode que couvre la valeur ("2025", "2026-09-02"), pas la
+  date a laquelle tu la lis.
+- MEME UNITE POUR TOUT L'ARTICLE. Ranger des pourcentages avec des millions de
+  dollars n'est pas un classement mais une erreur de categorie, et le controle
+  la refuse (EP-006). Si tes mesures ne partagent pas d'unite, ne renseigne
+  \`figure\` que sur celles qui se comparent.
+- N'invente jamais une valeur pour completer un tableau. Une claim sans mesure
+  chiffree n'a pas de \`figure\`, et c'est un cas normal.
 
 UNE CLAIM PORTE SUR LE MONDE, PAS SUR NOTRE APPROVISIONNEMENT.
 

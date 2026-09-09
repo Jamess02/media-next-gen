@@ -26,6 +26,7 @@ import {
   EVIDENCE_LEVEL_LABELS,
   SOURCE_TIER_LABELS,
 } from "../protocol/constants.js";
+import { formatFigure, rankedFigures } from "../protocol/figures.js";
 import { ArticleSchema, type Article, type Claim } from "../protocol/schema.js";
 import { runEditorialGate, type Violation } from "../protocol/rules.js";
 import { EditorialChangelog } from "../editorial/changelog.js";
@@ -140,6 +141,45 @@ function renderClaim(claim: Claim, index: number): string {
   ].join("\n");
 }
 
+/**
+ * Tableau comparatif des chiffres traites, classes du plus grand au plus petit.
+ *
+ * Rendu SEULEMENT a partir de deux chiffres : un classement d'un seul element
+ * n'est pas un classement, c'est une mise en forme.
+ *
+ * Chaque ligne porte son type, son niveau de preuve et sa claim d'origine.
+ * Aligner deux nombres AFFIRME leur comparabilite ; sans ces colonnes, le
+ * tableau egaliserait une donnee observee et une estimation (EP-006).
+ */
+function renderFigureTable(article: Article): string[] {
+  const lignes = rankedFigures(article);
+  if (lignes.length < 2) return [];
+
+  const unite = lignes[0]?.unit ?? "";
+  return [
+    "",
+    "## Chiffres traites",
+    "",
+    // La meme reserve que dans la legende HTML, et elle n'est pas rhetorique :
+    // le controle d'unite attrape l'erreur de categorie (% contre dollars), il
+    // ne peut pas juger si deux pourcentages mesurent la meme chose. Une
+    // croissance et une inflation partagent une unite sans etre comparables.
+    `Classement decroissant. Unite commune : ${escapeSourceText(unite)}. ` +
+      `Le rang est calcule par le pipeline, jamais redige. Le type et le niveau ` +
+      `de preuve figurent parce qu'aligner deux nombres n'en fait pas des ` +
+      `mesures equivalentes.`,
+    "",
+    `| # | Mesure | Valeur | Periode | Type | Preuve | Claim |`,
+    `| --- | --- | ---: | --- | --- | --- | --- |`,
+    ...lignes.map(
+      (f, i) =>
+        `| ${i + 1} | ${escapeSourceText(f.label)} | ${formatFigure(f.value)} ` +
+        `${escapeSourceText(f.unit)} | ${escapeSourceText(f.as_of)} | ` +
+        `${f.type} | ${f.evidenceLevel}/4 | \`${escapeSourceText(f.claimId)}\` |`,
+    ),
+  ];
+}
+
 export function renderArticle(article: Article): string {
   const parts: string[] = [
     `# ${escapeSourceText(article.title)}`,
@@ -171,6 +211,10 @@ export function renderArticle(article: Article): string {
     "---",
     "",
     neutralizeAuthoredMarkdown(article.body),
+    // Le tableau vient APRES le corps et AVANT les fiches de preuve : le
+    // lecteur voit les chiffres une fois le texte lu, avant d'entrer dans le
+    // detail des sources.
+    ...renderFigureTable(article),
     "",
     "---",
     "",

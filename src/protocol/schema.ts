@@ -73,6 +73,40 @@ export const claimId = z
     "identifiant de claim invalide : lettres, chiffres, tiret et souligne uniquement (64 max)",
   );
 
+/**
+ * Chiffre STRUCTURE porte par une claim, quand elle en porte un.
+ *
+ * POURQUOI UN CHAMP ET NON UNE EXTRACTION DU TEXTE. Le pipeline sait deja
+ * extraire des nombres d'une phrase (`detectUngroundedFigures`), et cette
+ * extraction est explicitement une heuristique : elle sert a SIGNALER, jamais a
+ * publier. Fonder un tableau dessus reviendrait a publier le resultat d'une
+ * devinette, mise en forme comme une donnee.
+ *
+ * POURQUOI PAS UN TABLEAU ECRIT PAR LE REDACTEUR. Meme raison que pour tout le
+ * reste : ce modele a produit un « niveau le plus eleve depuis 2008 » que rien
+ * n'etablissait. Lui demander d'aligner des chiffres ajouterait deux facons de
+ * se tromper — la valeur et le rang — a une sortie qui a l'apparence de la
+ * rigueur. Le champ est rempli par l'Analyste, qui LIT la source ; le tri est
+ * fait par du code.
+ *
+ * `unit` est OBLIGATOIRE. La lecon est deja apprise ailleurs : l'adaptateur
+ * FRED publiait des valeurs nues, et un modele a redige « 6 737 204 (unites) »
+ * pour combler le trou.
+ */
+export const FigureSchema = z
+  .object({
+    /** Libelle de la ligne dans le tableau ("PIB mondial"). */
+    label: z.string().min(1),
+    value: z.number().finite(),
+    /** "%", "millions de dollars"... Sans unite, un nombre ne se compare pas. */
+    unit: z.string().min(1),
+    /** Periode couverte, telle que la source la designe ("2025", "2026-09-02"). */
+    as_of: z.string().min(1),
+  })
+  .strict();
+
+export type Figure = z.infer<typeof FigureSchema>;
+
 export const ClaimSchema = z
   .object({
     id: claimId,
@@ -80,6 +114,11 @@ export const ClaimSchema = z
     type: z.enum(CLAIM_TYPES),
     evidence_level: z.literal(EVIDENCE_LEVELS),
     sources: z.array(SourceRefSchema),
+    /**
+     * Chiffre comparable porte par la claim, quand elle en porte un.
+     * Optionnel : la plupart des claims sont qualitatives.
+     */
+    figure: FigureSchema.optional(),
   })
   .strict();
 
