@@ -66,20 +66,32 @@ export const FREE_PROVIDERS: Record<string, ProviderSpec> = {
     // Verifie : les quatre modeles testables ont respecte le schema du premier
     // coup, et un modele non supporte est refuse par un 400 explicite.
     enforcesSchema: true,
-    // 8000 TPM, reservation de sortie incluse. L'entree croit avec le nombre
-    // de sources : ~4000 tokens en simule, ~5900 avec les sept sources
-    // reelles, le protocole pesant a lui seul ~3000 dans chaque appel.
+    // HORS DE PORTEE DEPUIS LE 13e ADAPTATEUR — mesure, pas suppose.
     //
-    // Ce reglage est structurellement fragile : chaque source ajoutee rapproche
-    // du plafond. Le palier gratuit de Groq est etroit pour ce pipeline, et le
-    // dire vaut mieux que d'ajuster ce nombre indefiniment — au-dela d'une
-    // dizaine de sources, il faudra un palier superieur ou un fournisseur plus
-    // large. Une troncature serait signalee explicitement plutot que devinee.
+    // 8000 TPM, reservation de sortie incluse. La note precedente annoncait ce
+    // reglage comme fragile mais fonctionnel ; il ne l'est plus. Mesure du
+    // 2026-09-09, catalogue a 13 sources :
+    //
+    //   HTTP 413 — Request too large : 9426 demandes pour 8000 autorises
+    //
+    // L'ENTREE seule pese donc ~7526 tokens (protocole ~3000 + les
+    // observations collectees). Baisser `maxTokens` ne sauve rien : meme a 400
+    // on serait a ~7926, au bord du plafond, avec des reponses tronquees. Ce
+    // n'est plus un reglage a ajuster, c'est un palier trop etroit.
+    //
+    // La valeur ci-dessous est CONSERVEE pour un catalogue reduit (jusqu'a une
+    // dizaine de sources, ou elle tenait). Pour le catalogue complet, prendre
+    // `ollama-cloud` ou `gemini`, qui n'imposent pas de plafond par minute
+    // comparable. Le 413 est explicite et non retentable : le client le dit
+    // ("Attendre ne changera rien") plutot que de boucler.
     maxTokens: 1900,
     notes:
-      "Palier gratuit : 8000 tokens/minute ET 200 000 tokens/JOUR. Le plafond " +
-      "journalier est atteint en une quinzaine d'executions du pipeline — a " +
-      "prevoir avant une seance de mise au point. " +
+      "Palier gratuit : 8000 tokens/minute ET 200 000 tokens/JOUR. " +
+      "INSUFFISANT pour le catalogue complet : avec 13 sources, la requete du " +
+      "Veilleur pese 9426 tokens et part en HTTP 413 avant tout traitement " +
+      "(mesure le 2026-09-09). Utilisable sur un catalogue reduit uniquement. " +
+      "Le plafond journalier est par ailleurs atteint en une quinzaine " +
+      "d'executions. " +
       "Inference tres rapide (moins d'une seconde par appel). " +
       "Seul fournisseur gratuit teste qui APPLIQUE reellement `response_format` : " +
       "les quatre modeles testables ont respecte le schema du premier coup. " +
