@@ -47,9 +47,35 @@ export const SourceRefSchema = z
   })
   .strict();
 
+/**
+ * §7 — forme d'un identifiant de claim.
+ *
+ * `z.string().min(1)` acceptait n'importe quoi, et cet identifiant est utilise
+ * a quatre endroits ou sa forme compte :
+ *
+ *  - la syntaxe de reference du corps, `[[id]]` : un id contenant `]]` rend le
+ *    decoupage ambigu et permet de fabriquer une reference qui n'est pas celle
+ *    qu'on croit lire ;
+ *  - l'ancre de la page publiee ;
+ *  - le rendu markdown de la fiche de preuve ;
+ *  - les messages du gate, qui citent l'id litteralement.
+ *
+ * Liste blanche, comme pour les schemas d'URL : on n'enumere pas les caracteres
+ * dangereux, on decrit la forme que le pipeline produit reellement
+ * (`claim-1`, `c1`, `claim_2`). Tout le reste est refuse.
+ */
+const CLAIM_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export const claimId = z
+  .string()
+  .regex(
+    CLAIM_ID,
+    "identifiant de claim invalide : lettres, chiffres, tiret et souligne uniquement (64 max)",
+  );
+
 export const ClaimSchema = z
   .object({
-    id: z.string().min(1),
+    id: claimId,
     text: z.string().min(1),
     type: z.enum(CLAIM_TYPES),
     evidence_level: z.literal(EVIDENCE_LEVELS),

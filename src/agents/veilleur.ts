@@ -65,6 +65,20 @@ Ta tache :
    et signale les retards de publication connus.
 4. \`primary_source_available\` est faux si aucun evenement retenu n'est de
    tier 1 ou 2. C'est une information editoriale, pas un echec.
+5. DISTINGUE "hors sujet" de "contexte". Une source qui ne porte pas le chiffre
+   central peut quand meme SITUER le sujet : le taux directeur eclaire le bilan
+   d'une banque centrale, un communique du meme emetteur date la decision, une
+   serie voisine donne l'ordre de grandeur. Ces sources-la se retiennent, avec
+   le motif "contexte".
+   Ne mets en \`set_aside\` que ce qui est reellement etranger au sujet ou
+   doublonne par une primaire (EP-001).
+
+   POURQUOI CETTE CONSIGNE EXISTE : sur quatre sujets consecutifs, une seule
+   observation sur vingt-six a ete retenue. L'arbitrage n'etait pas faux — un
+   seisme n'eclaire pas le PIB — mais un article bati sur une source unique
+   n'a ni recoupement, ni mise en perspective, et pousse l'etape suivante a
+   fabriquer des affirmations pour remplir. Mieux vaut ecarter en aval que
+   manquer de matiere en amont.
 
 Le champ \`url\` de tes sorties doit reprendre EXACTEMENT une url fournie en
 entree. N'en invente aucune, n'en reformule aucune.

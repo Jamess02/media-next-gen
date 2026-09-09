@@ -13,7 +13,12 @@
 
 import { z } from "zod";
 
-import { CLAIM_TYPES, EVIDENCE_LEVELS, SOURCE_TIERS } from "../protocol/constants.js";
+import {
+  CLAIM_TYPES,
+  EVIDENCE_LEVELS,
+  SOURCE_TIERS,
+  type ArticleMode,
+} from "../protocol/constants.js";
 import type { RawEvent } from "../protocol/schema.js";
 import { Agent, asJson } from "./base.js";
 
@@ -55,6 +60,8 @@ export interface AnalysteInput {
   topic: string;
   events: readonly RawEvent[];
   freshnessAssessment: string;
+  /** `constat` s'en tient a l'etabli ; `prospectif` exige un scenario conditionne. */
+  mode: ArticleMode;
 }
 
 const INSTRUCTIONS = `
@@ -84,12 +91,51 @@ partiel est une faute editoriale, pas un detail.
 les donnees observables. Si la presse chiffre ce que les donnees ne chiffrent
 pas, dis-le.
 
+UNE CLAIM PORTE SUR LE MONDE, PAS SUR NOTRE APPROVISIONNEMENT.
+
+"Le PIB mondial a cru de 2,92 % en 2025" est une claim. "La serie couvre 4
+observations renseignees" et "le jeu de donnees a ete publie puis revise" n'en
+sont pas : ce sont des faits sur le tuyau, pas sur l'economie. Leur place est
+dans \`publication_caveats\`, jamais dans une claim structurante.
+
+Exception : si la revision ou le retard de publication EST le sujet de
+l'article, dis-le dans \`rationale\` — cette claim sera signalee au relecteur.
+
+NE REMPLIS PAS JUSQU'A TROIS.
+
+Le plafond de 3 (§3) est un MAXIMUM, jamais un objectif. Une claim solide vaut
+mieux que trois dont deux sont du remplissage. Si le materiau n'en porte
+qu'une, n'en produis qu'une : c'est le Redacteur qui fait la longueur de
+l'article, pas toi. Fabriquer une deuxieme claim a partir de la meme source
+pour atteindre le compte est la faute la plus courante ici.
+
+MODE
+
+Le champ \`mode\` vaut \`constat\` ou \`prospectif\`.
+
+- \`constat\` : tu t'en tiens a ce qui est etabli. Aucun \`scénario\`.
+- \`prospectif\` : tu produis AU MOINS UNE claim de type \`scénario\`, et les
+  autres claims servent de premisses sourcees. Un scenario n'est publiable que
+  s'il remplit les trois conditions suivantes :
+    1. sa condition est ECRITE dans le texte de la claim ("si X se maintient au
+       dela de...", "tant que Y reste sous..."). Sans condition, ce n'est pas
+       un scenario, c'est une prevision — et le controle la refuse ;
+    2. sa condition est OBSERVABLE : un lecteur doit pouvoir constater
+       lui-meme, a une date future, si elle s'est verifiee ;
+    3. ses premisses sont sourcees. Le niveau de preuve d'un scenario porte sur
+       ce qui le fonde, pas sur son issue — qui, elle, n'est pas verifiable.
+  Un scenario dont aucune observation ne pourrait montrer qu'il est faux n'a
+  pas sa place : il n'est pas contestable, donc pas publiable (§0).
+
 Contraintes :
 - Au plus 3 claims (§3). Si le materiau en porte davantage, garde les 3 plus
   structurantes et ignore le reste.
 - Les \`sources\` de chaque claim doivent reprendre exactement des urls et des
   tiers fournis en entree. N'invente rien, ne modifie aucun tier.
-- Ne formule aucune recommandation politique ou d'investissement (EP-007).
+- Redige les claims EN FRANCAIS, meme quand la source est en anglais. Recopier
+  la langue de la source n'est pas de l'analyse.
+- Ne formule aucune recommandation politique ou d'investissement (EP-007). Un
+  scenario dit ce qui pourrait advenir, jamais ce qu'il faudrait faire.
 `;
 
 export class Analyste extends Agent<AnalysteInput, AnalysteOutput> {
@@ -101,6 +147,7 @@ export class Analyste extends Agent<AnalysteInput, AnalysteOutput> {
   protected buildUserMessage(input: AnalysteInput): string {
     return asJson({
       sujet: input.topic,
+      mode: input.mode,
       fenetre_de_fraicheur: input.freshnessAssessment,
       observations_retenues: input.events,
     });

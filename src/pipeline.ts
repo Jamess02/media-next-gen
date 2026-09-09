@@ -28,7 +28,12 @@ import {
   effectiveVerdict,
 } from "./agents/redacteur-en-chef.js";
 import { Veilleur, applySelection } from "./agents/veilleur.js";
-import { WEAK_TIERS, WEAK_TIER_DISCLAIMER } from "./protocol/constants.js";
+import {
+  PROSPECTIVE_DISCLAIMER,
+  WEAK_TIERS,
+  WEAK_TIER_DISCLAIMER,
+  type ArticleMode,
+} from "./protocol/constants.js";
 import {
   boldDisclosure,
   disclosureText,
@@ -36,6 +41,7 @@ import {
 } from "./protocol/interests.js";
 import {
   detectIllegalPromotions,
+  detectUncollectedSources,
   detectUngroundedFigures,
   type Violation,
 } from "./protocol/rules.js";
@@ -76,6 +82,11 @@ export interface PipelineOptions {
   editeur?: Editeur;
   /** Borne basse de fraicheur (§5.1). Defaut : 30 jours glissants. */
   since?: string;
+  /**
+   * `constat` (defaut) documente l etabli ; `prospectif` construit l article
+   * autour de scenarios conditionnes.
+   */
+  mode?: ArticleMode;
   /** Journal de progression. Injecte pour rester testable. */
   onStage?: (stage: PipelineStage, detail: string) => void;
 }
@@ -89,6 +100,7 @@ export class EditorialPipeline {
   private readonly redacteurEnChef: RedacteurEnChef;
   private readonly editeur: Editeur;
   private readonly since: string;
+  private readonly mode: ArticleMode;
   private readonly onStage: (stage: PipelineStage, detail: string) => void;
 
   constructor(private readonly options: PipelineOptions) {
@@ -103,6 +115,7 @@ export class EditorialPipeline {
     this.since =
       options.since ??
       new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    this.mode = options.mode ?? "constat";
     this.onStage = options.onStage ?? (() => {});
   }
 
@@ -139,11 +152,29 @@ export class EditorialPipeline {
       topic,
       events: retained,
       freshnessAssessment: selection.freshness_assessment,
+      mode: this.mode,
     });
     this.onStage("analyse", `${analysis.candidates.length} claim(s) candidate(s)`);
 
     if (analysis.candidates.length === 0) {
       return halt("analyse", "aucune claim candidate produite", []);
+    }
+
+    /* --- §9.4 Ancrage des sources dans la collecte ------------------------ */
+    // AVANT tout appel supplementaire au modele : une claim qui cite une URL
+    // jamais collectee est soit une invention, soit une injection venue du
+    // contenu d'une source. Dans les deux cas, poursuivre reviendrait a payer
+    // un appel pour raffiner un materiau deja disqualifie.
+    const uncollected = detectUncollectedSources(
+      analysis.candidates,
+      retained.map((e) => e.url),
+    );
+    if (uncollected.length > 0) {
+      return halt(
+        "analyse",
+        "une claim cite une source absente de la collecte (§9.4)",
+        uncollected.map((v) => v.message),
+      );
     }
 
     /* --- §5.2 / §9.3 Gate bloquant --------------------------------------- */
@@ -209,6 +240,32 @@ export class EditorialPipeline {
       }
     }
 
+    /* --- Mode prospectif : au moins un scenario ---------------------------- */
+    // Un article annonce prospectif qui ne contiendrait que des constats
+    // tromperait sur ce qu'il est. Le controle est ici et non dans `rules.ts` :
+    // le mode est une intention editoriale de l'execution, il n'appartient pas
+    // au contrat §7 et l'Editeur n'a aucun moyen de le connaitre.
+    if (this.mode === "prospectif") {
+      const scenarios = gate.accepted.filter((c) => c.type === "scénario");
+      if (scenarios.length === 0) {
+        return halt(
+          "fact-checking",
+          "mode prospectif : aucune claim de type scénario n'a survecu au gate",
+          [
+            "Un article prospectif se construit autour d'au moins un scenario " +
+              "conditionne (§3). Les claims retenues sont toutes des constats : " +
+              "publier sous ce mode annoncerait au lecteur une projection qui " +
+              "n'existe pas.",
+            ...gate.accepted.map((c) => `${c.id} : ${c.type}`),
+          ],
+        );
+      }
+      this.onStage(
+        "fact-checking",
+        `mode prospectif : ${scenarios.length} scenario(s) conditionne(s) retenu(s)`,
+      );
+    }
+
     /* --- §5.3 Redaction --------------------------------------------------- */
     const allSourcesWeak = gate.accepted.every(
       (c) =>
@@ -223,9 +280,10 @@ export class EditorialPipeline {
     // fournies deja en gras au Redacteur, et la meme regle qui les exige les
     // reconstruit pour verifier (protocol/interests.ts) — il n'y a donc qu'une
     // seule formulation possible, cote consigne comme cote controle.
-    const interests = interestsForUrls(
+    const citedUrls = new Set(
       gate.accepted.flatMap((c) => c.sources.map((s) => s.url)),
     );
+    const interests = interestsForUrls([...citedUrls]);
     if (interests.length > 0) {
       this.onStage(
         "redaction",
@@ -241,6 +299,18 @@ export class EditorialPipeline {
       publicationCaveats: analysis.publication_caveats,
       requiredDisclaimer: allSourcesWeak ? WEAK_TIER_DISCLAIMER : null,
       requiredDisclosures: interests.map(boldDisclosure),
+      mode: this.mode,
+      // Les observations effectivement citees par les claims retenues. Sans
+      // cette matiere, le Redacteur devait expliquer une methode qu'il n'avait
+      // aucun moyen de connaitre — et il l'inventait.
+      sourceMaterial: retained
+        .filter((e) => citedUrls.has(e.url))
+        .map((e) => ({
+          source: e.source,
+          url: e.url,
+          date_published: e.date_published,
+          resume: e.resume,
+        })),
     });
     this.onStage("redaction", `"${draft.title}"`);
 
@@ -275,6 +345,11 @@ export class EditorialPipeline {
         (f) => `Source indisponible lors de la collecte : ${f.adapterId} (${f.error}).`,
       ),
       ...(allSourcesWeak ? [WEAK_TIER_DISCLAIMER] : []),
+      // Un lecteur doit savoir, avant la premiere phrase, qu'il lit du
+      // conditionnel. Pose par le pipeline et non par le Redacteur : la
+      // nature de l'article ne depend pas de ce qu'un modele a bien voulu
+      // ecrire.
+      ...(this.mode === "prospectif" ? [PROSPECTIVE_DISCLAIMER] : []),
       // La divulgation est aussi posee ICI, par le pipeline. Celle du corps
       // depend du Redacteur — le gate la verifie, mais un texte peut toujours
       // la placer maladroitement. Celle-ci est deterministe.
@@ -363,6 +438,11 @@ export class EditorialPipeline {
         ...review.implicit_recommendations.map(
           (r) => `Recommandation implicite (EP-007) : "${r}"`,
         ),
+        // Sans cette ligne, les affirmations non soutenues restaient dans la
+        // reponse du modele sans jamais atteindre celui qui doit corriger.
+        ...review.unsupported_assertions.map(
+          (a) => `Affirmation non soutenue par une claim (§2) : "${a}"`,
+        ),
         ...review.angle_issues,
         ...review.suggested_split,
       ]);
@@ -372,12 +452,36 @@ export class EditorialPipeline {
     try {
       const published = await this.editeur.publish(article);
       this.onStage("publication", published.markdownPath);
+
+      // Les passages que le redacteur en chef juge non soutenus n'empechent pas
+      // la publication du BROUILLON, mais ils doivent atteindre celui qui relit.
+      // Les perdre ici reviendrait a les avoir supprimes.
+      const chiefWarnings: Violation[] = review.unsupported_assertions.map(
+        (passage) => ({
+          rule: "UNSUPPORTED_ASSERTION",
+          clause: "§2 / §5.4",
+          severity: "warning" as const,
+          message:
+            `Le redacteur en chef juge ce passage non soutenu par une claim : ` +
+            `"${passage}". A verifier avant relecture : soit la formulation ` +
+            `avance un fait que rien n'etablit, soit elle enonce une limite et ` +
+            `le signalement est un faux positif.`,
+          path: "body",
+        }),
+      );
+      if (chiefWarnings.length > 0) {
+        this.onStage(
+          "validation",
+          `${chiefWarnings.length} passage(s) signale(s) au relecteur`,
+        );
+      }
+
       return {
         status: "published",
         article: published.article,
         jsonPath: published.jsonPath,
         markdownPath: published.markdownPath,
-        warnings: published.warnings,
+        warnings: [...published.warnings, ...chiefWarnings],
         adjustments: gate.adjustments,
       };
     } catch (error) {

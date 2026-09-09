@@ -13,7 +13,7 @@ import {
   detectUngroundedFigures,
 } from "../src/protocol/rules.js";
 import type { Claim } from "../src/protocol/schema.js";
-import { article, claim } from "./helpers.js";
+import { article, claim, PROSE_MINIMALE } from "./helpers.js";
 
 const blocking = (a: Parameters<typeof runEditorialGate>[0]) =>
   runEditorialGate(a).violations.filter((v) => v.severity === "blocking");
@@ -200,7 +200,9 @@ describe("§7 — references du corps vers les claims", () => {
   });
 
   it("avertit sans bloquer sur une claim jamais referencee", () => {
-    const result = runEditorialGate(article({ body: "Corps sans reference." }));
+    const result = runEditorialGate(
+      article({ body: `Corps sans reference.${PROSE_MINIMALE}` }),
+    );
     expect(result.passed).toBe(true);
     expect(result.violations.map((v) => v.rule)).toContain("CLAIM_NOT_REFERENCED");
   });
@@ -250,7 +252,7 @@ describe("EP-007 — absence de recommandation", () => {
   it("laisse passer une description neutre", () => {
     expect(
       runEditorialGate(
-        article({ body: "Le taux directeur passe a 4,50 %. [[claim-1]]" }),
+        article({ body: `Le taux directeur passe a 4,50 %. [[claim-1]]${PROSE_MINIMALE}` }),
       ).passed,
     ).toBe(true);
   });

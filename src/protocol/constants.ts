@@ -105,3 +105,50 @@ export const CHANGELOG_TYPES = [
   "éditoriale",
 ] as const;
 export type ChangelogType = (typeof CHANGELOG_TYPES)[number];
+
+/* -------------------------------------------------------------------------
+ * §5.3 — Exigences de redaction
+ *
+ * Ajoutees apres une execution reelle : le modele rendait des corps de 107 a
+ * 137 mots constitues du TEXTE DES CLAIMS colle tel quel. Aucune regle ne s'y
+ * opposait, parce que les consignes du Redacteur ne portaient que sur la
+ * FORME des references, jamais sur l'existence d'un travail de redaction.
+ *
+ * Les deux seuils ci-dessous rendent ce collage impossible plutot que
+ * deconseille. Ils sont volontairement bas : ils definissent un plancher, pas
+ * une cible. Un texte qui les franchit n'est pas bon pour autant.
+ * ---------------------------------------------------------------------- */
+
+/** Plancher de longueur du corps. En deca, il n'y a pas d'article. */
+export const MIN_BODY_WORDS = 220;
+
+/**
+ * Part maximale du corps occupee par le texte des claims recopie mot pour mot.
+ *
+ * Une claim PEUT etre citee : c'est la preuve, et la citer est legitime. Mais
+ * si l'article EST les claims, personne n'a redige. C'est exactement le defaut
+ * constate, et c'est ce ratio qui le nomme.
+ */
+export const MAX_VERBATIM_CLAIM_SHARE = 0.55;
+
+/* -------------------------------------------------------------------------
+ * Modes d'article
+ * ---------------------------------------------------------------------- */
+
+/**
+ * `constat` documente ce qui est etabli. `prospectif` explore ce qui suivrait
+ * SI des conditions nommees se verifiaient.
+ *
+ * Le §3 prevoit deja le type `scénario` ; le mode prospectif ne cree donc
+ * aucune permission nouvelle, il rend explicite une intention editoriale et
+ * declenche les garde-fous qui vont avec : condition obligatoire dans le
+ * texte, declaration en tete d'article, et l'interdit EP-007 inchange — un
+ * scenario decrit ce qui pourrait advenir, jamais ce qu'il faudrait faire.
+ */
+export const ARTICLE_MODES = ["constat", "prospectif"] as const;
+export type ArticleMode = (typeof ARTICLE_MODES)[number];
+
+export const PROSPECTIVE_DISCLAIMER =
+  "Article prospectif : les scenarios ci-dessous sont des hypotheses " +
+  "conditionnelles, pas des previsions. Leurs premisses sont sourcees ; leurs " +
+  "consequences ne le sont pas et ne peuvent pas l'etre.";

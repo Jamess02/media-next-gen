@@ -46,6 +46,20 @@ export interface FredAdapterOptions {
   seriesId: string;
   /** Libelle lisible, pour le resume. */
   label: string;
+  /**
+   * Unite de la serie, telle que FRED la documente ("Percent", "Millions of
+   * U.S. Dollars"...). OBLIGATOIRE, et c'est une correction.
+   *
+   * L'API des observations rend des valeurs NUES : elle ne transporte pas
+   * l'unite, qui vit dans un autre endpoint. Le resume publiait donc
+   * "6 737 204" sans rien d'autre — et un vrai modele, confronte a ce chiffre
+   * sans unite, a redige "6 737 204 (unites)". Il n'inventait pas : il
+   * comblait un trou que nous avions laisse.
+   *
+   * Rendre ce champ obligatoire fait que la faute ne peut pas se reproduire :
+   * une serie ne se branche plus sans son unite.
+   */
+  unit: string;
   /** Clef d'API FRED. Lue depuis l'environnement par le catalogue. */
   apiKey: string;
   /** Nombre d'observations les plus recentes. */
@@ -127,7 +141,7 @@ export function fredAdapter(options: FredAdapterOptions): SourceAdapter {
             type: "donnee-macro",
             resume:
               `${options.label} — serie ${options.seriesId} : ` +
-              `${formatMeasure(latest.value)} au ${latest.date}. ` +
+              `${formatMeasure(latest.value)} ${options.unit} au ${latest.date}. ` +
               `Couverture : ${coverage}. ` +
               `Millesime interroge : ${payload.realtime_start ?? "non precise"} ` +
               `(FRED revise ses series ; une meme date peut porter une valeur ` +

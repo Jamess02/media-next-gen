@@ -30,7 +30,11 @@ import {
   type ProviderName,
   type ResolvedProvider,
 } from "./llm/providers.js";
-import { CHANGELOG_TYPES, type ChangelogType } from "./protocol/constants.js";
+import {
+  CHANGELOG_TYPES,
+  type ArticleMode,
+  type ChangelogType,
+} from "./protocol/constants.js";
 import { EditorialPipeline, type PipelineStage } from "./pipeline.js";
 import { buildSourceCatalogue } from "./sources/catalogue.js";
 import { MOCK_ADAPTERS } from "./sources/mock-sources.js";
@@ -52,6 +56,7 @@ interface PublishCommand {
   topic: string;
   provider: ProviderName;
   realSources: boolean;
+  mode: ArticleMode;
 }
 
 interface ReviseCommand {
@@ -75,6 +80,7 @@ function parseArgs(argv: readonly string[]): Command {
   const positional: string[] = [];
   let provider = (process.env["MEDIA_PROVIDER"] ?? "mock") as ProviderName;
   let realSources = false;
+  let mode: ArticleMode = "constat";
   let type: string | undefined;
   let relecteur: string | undefined;
   let drafts = false;
@@ -95,6 +101,7 @@ function parseArgs(argv: readonly string[]): Command {
     else if (arg === "--mode=live") provider = "anthropic";
     else if (arg === "--mode=mock") provider = "mock";
     else if (arg === "--real-sources") realSources = true;
+    else if (arg === "--prospectif") mode = "prospectif";
     else if (arg === "--providers") return { kind: "list-providers" };
     else if (arg.startsWith("--type=")) type = arg.slice("--type=".length);
     else positional.push(arg);
@@ -167,6 +174,7 @@ function parseArgs(argv: readonly string[]): Command {
     topic: positional.join(" ").trim() || "politique monetaire et flux commerciaux",
     provider,
     realSources,
+    mode,
   };
 }
 
@@ -228,6 +236,7 @@ async function publish(command: PublishCommand): Promise<void> {
   console.log(`Sujet   : ${command.topic}`);
   console.log(`Modele  : ${llm.modelId}`);
   console.log(`Sources : ${command.realSources ? "reelles" : "simulees"}`);
+  console.log(`Mode    : ${command.mode}`);
   if (resolved.notices.length > 0) {
     console.log("");
     for (const notice of resolved.notices) console.log(`! ${notice}`);
@@ -237,6 +246,7 @@ async function publish(command: PublishCommand): Promise<void> {
   const pipeline = new EditorialPipeline({
     ctx: { llm, audit },
     adapters,
+    mode: command.mode,
     onStage: (stage: PipelineStage, detail: string) =>
       console.log(`  [${stage.padEnd(13)}] ${detail}`),
   });
@@ -396,8 +406,8 @@ async function previewCommand(port: number, drafts: boolean): Promise<void> {
 }
 
 async function studioCommand(port: number): Promise<void> {
-  const url = await startStudio({ port });
-  console.log(`STUDIO — interface de pilotage sur ${url}`);
+  const studio = await startStudio({ port });
+  console.log(`STUDIO — interface de pilotage sur ${studio.url}`);
   console.log("");
   console.log("Ecoute sur la boucle locale uniquement : ce serveur declenche le");
   console.log("pipeline, donc des appels potentiellement factures.");

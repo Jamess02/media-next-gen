@@ -23,7 +23,7 @@
  */
 
 import type { FetchOutcome, Observation, SourceAdapter, SourceQuery } from "./types.js";
-import { SourceFetchError } from "./http.js";
+import { SourceFetchError, readBodyCapped, safeFetch } from "./http.js";
 
 const TIMEOUT_MS = 20_000;
 
@@ -91,23 +91,20 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
     describes: options.describes,
 
     async fetch(query: SourceQuery): Promise<FetchOutcome> {
-      let reponse: Response;
-      try {
-        reponse = await fetch(options.url, {
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-          redirect: "follow",
+      // `redirect: "follow"` etait ici la faille : un flux qui redirige vers
+      // 169.254.169.254 ou vers la boucle locale faisait emettre la requete par
+      // notre infrastructure. `safeFetch` valide chaque saut AVANT de l'appeler.
+      const reponse = await safeFetch(
+        options.url,
+        {
           headers: {
             "user-agent": "media-next-gen (pipeline editorial)",
             accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
           },
-        });
-      } catch (error) {
-        throw new SourceFetchError(
-          options.source,
-          options.url,
-          error instanceof Error ? `echec reseau — ${error.message}` : "echec reseau",
-        );
-      }
+        },
+        options.source,
+        TIMEOUT_MS,
+      );
 
       if (!reponse.ok) {
         throw new SourceFetchError(
@@ -118,7 +115,9 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
         );
       }
 
-      const xml = await reponse.text();
+      // Plafonne AVANT l'analyse : sur un corps demesure, la regex d'extraction
+      // part en explosion combinatoire (worker tue en test).
+      const xml = await readBodyCapped(reponse, options.source, options.url);
       const blocs = [
         ...xml.matchAll(/<item[\s>][\s\S]*?<\/item>/gi),
         ...xml.matchAll(/<entry[\s>][\s\S]*?<\/entry>/gi),

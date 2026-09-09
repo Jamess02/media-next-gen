@@ -34,7 +34,7 @@ import { agentManifest, articlesSurface } from "../src/site/agent-surface.js";
 import { articlePage } from "../src/site/templates.js";
 import { classifySource } from "../src/sources/registry.js";
 import { buildSourceCatalogue } from "../src/sources/catalogue.js";
-import { article, claim } from "./helpers.js";
+import { article, claim, PROSE_MINIMALE } from "./helpers.js";
 
 const CASTLE = DECLARED_INTERESTS.find((i) => i.domain === "castleisland.vc")!;
 const GALAXY = DECLARED_INTERESTS.find((i) => i.domain === "galaxy.com")!;
@@ -144,7 +144,7 @@ describe("regle bloquante INTEREST_UNDISCLOSED", () => {
     const c = claimAvecInteret("https://castleisland.vc/x");
     const a = article({
       claims: [c],
-      body: `Le fonds avance ceci [[${c.id}]]. ${boldDisclosure(CASTLE)}`,
+      body: `Le fonds avance ceci [[${c.id}]]. ${boldDisclosure(CASTLE)}${PROSE_MINIMALE}`,
     });
     expect(rule(a)).toHaveLength(0);
     expect(runEditorialGate(a).passed).toBe(true);

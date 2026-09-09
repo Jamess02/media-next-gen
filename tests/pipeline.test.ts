@@ -219,10 +219,42 @@ describe("arrets du pipeline", () => {
           conflicts_found: [],
         };
       },
-      // Le corps ne doit referencer que la claim survivante.
+      // Le corps ne doit referencer que la claim survivante — et doit tenir
+      // les planchers de redaction (§5.3) : depuis BODY_TOO_THIN et
+      // BODY_IS_CLAIM_PASTE, une phrase unique recopiant la claim ne passe
+      // plus, y compris dans un repli en hypotheses.
       redacteur: () => ({
         title: "[SIMULATION] Lecture prudente d'un resserrement monetaire",
-        body: "Si le resserrement se poursuit, une pression sur le compte courant devient plausible [[claim-1]].",
+        body: [
+          "[SIMULATION] Deux des trois affirmations envisagees pour cet article " +
+            "n'ont pas survecu au controle de preuve. Ce qui suit ne documente " +
+            "donc pas un enchainement etabli, mais une seule hypothese, ecrite " +
+            "comme telle et rattachee a la condition qui la porte.",
+          "",
+          "L'unique element retenu est une projection conditionnelle [[claim-1]]. " +
+            "Sa condition est nommee dans la fiche de preuve, avec la source qui " +
+            "l'etablit et sa date d'observation. Ce que cette hypothese ne dit " +
+            "pas merite d'etre souligne : elle ne quantifie aucune ampleur, ne " +
+            "fixe aucun calendrier, et ne se prononce pas sur les grandeurs " +
+            "voisines que la meme source publie separement.",
+          "",
+          "La difference entre une hypothese et une prevision tient a sa " +
+            "condition. Une prevision affirme ce qui va se produire ; une " +
+            "hypothese enonce ce qui suivrait si une situation nommee se " +
+            "maintenait, et laisse au lecteur le moyen de constater lui-meme, " +
+            "plus tard, si cette situation s'est verifiee.",
+          "",
+          "Le repli en hypotheses n a pas ete choisi : il a ete impose par le " +
+            "controle de preuve, qui a refuse les formulations initiales. Un lecteur " +
+            "doit pouvoir distinguer un article ecrit d emblee au conditionnel d un " +
+            "article rabattu sur le conditionnel apres echec, car les deux " +
+            "n engagent pas la meme confiance.",
+          "",
+          "Ce qui reste ouvert : la prochaine publication des series citees dira " +
+            "si la condition tient. Les elements ecartes au controle de preuve " +
+            "figurent en fin d'article avec leur motif, afin que le lecteur " +
+            "sache ce qui a ete envisage puis abandonne, et pourquoi.",
+        ].join("\n"),
         uncertainty_flags: [],
       }),
     });
@@ -273,6 +305,7 @@ describe("arrets du pipeline", () => {
         implicit_recommendations: [
           "Les fondamentaux de Zembla restent solides malgre les tensions.",
         ],
+        unsupported_assertions: [],
         angle_issues: [],
         suggested_split: [],
       }),

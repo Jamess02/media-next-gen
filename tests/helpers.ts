@@ -62,6 +62,90 @@ export function claim(overrides: Partial<Claim> = {}): Claim {
   };
 }
 
+/**
+ * Corps par defaut : un texte REDIGE, pas un collage de claims.
+ *
+ * Depuis l'ajout de BODY_TOO_THIN et BODY_IS_CLAIM_PASTE (§5.3), un article
+ * dont le corps se resume a ses references ne passe plus le gate. Le corps par
+ * defaut du helper doit donc ressembler a ce que le protocole attend, sinon
+ * chaque test devrait le contourner — et un helper qu'on contourne partout ne
+ * sert plus a rien.
+ *
+ * Il ne reprend AUCUN texte de claim : c'est precisement ce que la regle
+ * mesure.
+ */
+/**
+ * Prose de remplissage, en francais, sans aucun texte de claim.
+ *
+ * Sert aux tests qui veulent eprouver UNE regle precise avec un corps sur
+ * mesure : sans elle, chacun tomberait d'abord sur BODY_TOO_THIN et
+ * testerait le plancher de redaction au lieu de ce qu'il vise.
+ */
+export const PROSE_MINIMALE = [
+  "",
+  "Cet article documente un etat de publication a une date donnee. Il ne " +
+    "prolonge pas les donnees au-dela de ce qu'elles portent et distingue a " +
+    "chaque etape ce qui releve de l'observation de ce qui n'en releve pas. " +
+    "La date de collecte compte autant que la valeur relevee : une meme serie " +
+    "consultee deux semaines plus tard peut porter un chiffre different sans " +
+    "qu'aucun evenement economique ne se soit produit entre-temps.",
+  "",
+  "La methode de production compte autant que le resultat. Chaque valeur citee " +
+    "provient d'un organisme identifie, couvre une periode nommee et porte une " +
+    "date d'observation distincte de sa date de publication. Confondre ces deux " +
+    "dates conduit a dater un fait du jour ou on l'a lu plutot que du jour ou " +
+    "il s'est produit, ce qui suffit a rendre une comparaison trompeuse.",
+  "",
+  "Aucun rapprochement entre institutions differentes n'est effectue ici. Deux " +
+    "series qui portent le meme nom peuvent reposer sur des perimetres, des " +
+    "frequences et des methodes de revision distincts ; les additionner ou les " +
+    "comparer sans exposer ces ecarts produirait un chiffre plus precis en " +
+    "apparence et moins vrai en pratique.",
+  "",
+  "Ce qui reste ouvert : la prochaine publication de chaque source dira si les " +
+    "valeurs retenues sont revisees, plusieurs des series citees etant sujettes " +
+    "a revision apres leur premiere diffusion. Les elements absents du catalogue " +
+    "de sources ne sont pas traites, et leur absence ne vaut pas absence de " +
+    "fait — elle signale seulement les limites de ce que la collecte a pu " +
+    "atteindre a cette date.",
+].join("\n");
+
+export function defaultBody(claims: readonly Claim[]): string {
+  const paragraphes = claims.map(
+    (c, i) =>
+      `Le ${["premier", "deuxieme", "troisieme"][i] ?? `${i + 1}e`} element retenu ` +
+      `pour cette lecture est adosse a ${c.sources.length} source(s) identifiee(s) ` +
+      `et se lit dans la fiche de preuve jointe [[${c.id}]]. Son producteur, la ` +
+      `periode couverte et la date d'observation y figurent, de sorte qu'un lecteur ` +
+      `puisse remonter a l'emetteur sans dependre de ce texte. Ce que cet element ` +
+      `ne dit pas merite d'etre nomme : il ne couvre pas les periodes anterieures ` +
+      `a la fenetre de collecte retenue, et ne se prononce pas sur les grandeurs ` +
+      `voisines que la meme institution publie separement.`,
+  );
+
+  return [
+    "Cet article documente un etat de publication a une date donnee. Il ne " +
+      "prolonge pas les donnees au-dela de ce qu'elles portent et distingue a " +
+      "chaque etape ce qui releve de l'observation de ce qui n'en releve pas. " +
+      "La date de collecte compte autant que la valeur relevee : une meme serie " +
+      "consultee deux semaines plus tard peut porter un chiffre different sans " +
+      "qu'aucun evenement economique ne se soit produit entre-temps.",
+    "",
+    ...paragraphes.flatMap((p) => [p, ""]),
+    "Prises ensemble, ces affirmations decrivent un etat de publication et non " +
+      "une dynamique. Aucune n'a fait l'objet d'un recoupement entre sources " +
+      "independantes, et le rapprochement de series produites par des " +
+      "institutions differentes n'est pas fait ici.",
+    "",
+    "Ce qui reste ouvert : la prochaine publication de chaque source dira si les " +
+      "valeurs retenues sont revisees, plusieurs des series citees etant sujettes " +
+      "a revision apres leur premiere diffusion. Les elements absents du catalogue " +
+      "de sources ne sont pas traites, et leur absence ne vaut pas absence de " +
+      "fait — elle signale seulement les limites de ce que la collecte a pu " +
+      "atteindre a cette date.",
+  ].join("\n");
+}
+
 export function article(overrides: Partial<Article> = {}): Article {
   const claims = overrides.claims ?? [claim()];
   return {
@@ -73,7 +157,7 @@ export function article(overrides: Partial<Article> = {}): Article {
     revised_at: null,
     authors_agents: ["analyste", "fact-checker"],
     claims,
-    body: claims.map((c) => `Corps de test [[${c.id}]].`).join("\n"),
+    body: defaultBody(claims),
     editorial_notes: { uncertainty_flags: [], excluded_claims: [] },
     changelog: [],
     ...overrides,

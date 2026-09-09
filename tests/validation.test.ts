@@ -23,7 +23,7 @@ import {
 } from "../src/editorial/validation.js";
 import { buildSite } from "../src/site/build.js";
 import type { Article } from "../src/protocol/schema.js";
-import { article, claim } from "./helpers.js";
+import { article, claim, PROSE_MINIMALE } from "./helpers.js";
 
 let workDir: string;
 let draftDir: string;
@@ -120,7 +120,7 @@ describe("promotion d'un brouillon relu", () => {
   });
 
   it("remonte les avertissements acceptes en validant", async () => {
-    await seed({ body: "Corps sans reference." });
+    await seed({ body: `Corps sans reference.${PROSE_MINIMALE}` });
     const r = await valider();
     expect(r.warnings.map((w) => w.rule)).toContain("CLAIM_NOT_REFERENCED");
   });

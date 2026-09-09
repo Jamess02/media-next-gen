@@ -190,6 +190,7 @@ export function buildSourceCatalogue(
       fredAdapter({
         seriesId: "FEDFUNDS",
         label: "Taux effectif des fonds federaux",
+        unit: "%",
         apiKey: fredKey,
       }),
       // Bilan de la Reserve federale — le contenu chiffre du H.4.1, publie
@@ -198,6 +199,7 @@ export function buildSourceCatalogue(
       fredAdapter({
         seriesId: "WALCL",
         label: "Total de l'actif de la Reserve federale (bilan H.4.1)",
+        unit: "millions de dollars",
         apiKey: fredKey,
         limit: 4,
       }),

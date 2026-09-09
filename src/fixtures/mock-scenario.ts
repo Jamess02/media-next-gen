@@ -157,6 +157,10 @@ export const MOCK_RESPONDERS: Record<string, MockResponder> = {
       "La conjonction de ces deux elements suggere une pression sur le compte courant au troisieme trimestre [[claim-3]]. Aucune donnee retenue ne documente directement ce compte : il s'agit d'une deduction, pas d'une observation.",
       "",
       "La couverture de presse evoque de son cote un \"risque de crise commerciale\". Ce terme n'a pas de definition operationnelle dans les sources primaires disponibles, et les donnees partielles ne permettent ni de l'etayer ni de l'ecarter.",
+      "",
+      "Comment ces chiffres sont produits importe autant que leur valeur. Le taux directeur est publie par la banque centrale elle-meme, le jour de sa decision : sa date fait foi et il n'est pas revise. Les donnees douanieres suivent une logique inverse — elles s'accumulent au fil des declarations, si bien qu'un meme mois change de valeur pendant des trimestres. Comparer les deux au meme titre reviendrait a traiter une decision administrative et un agregat en cours de constitution comme des objets de meme nature.",
+      "",
+      "Ce qui reste ouvert. La prochaine livraison douaniere dira si les huit declarants manquants confirment ou inversent le solde observe sur le perimetre partiel ; c'est elle, et non le commentaire, qui tranchera. Rien dans les sources retenues ne documente les reserves de change ni les flux de capitaux, sans lesquels la pression evoquee sur le compte courant reste une hypothese de lecture. Enfin, aucune source ne dit si le resserrement etait anticipe par les marches : l'ecart entre attente et decision, qui est souvent l'information la plus utile, n'est pas disponible ici.",
     ].join("\n"),
     uncertainty_flags: [
       "Le solde de -569 MUSD porte sur 3 declarants sur 11 : il ne represente pas le solde commercial de Zembla.",
@@ -170,6 +174,7 @@ export const MOCK_RESPONDERS: Record<string, MockResponder> = {
     justification:
       "L'angle correspond au materiau : le titre annonce un resserrement et une incertitude commerciale, le corps demontre les deux sans les confondre. Le statut d'inference de claim-3 est lisible dans la phrase elle-meme. Aucune conclusion ne deborde ce que les claims soutiennent.",
     implicit_recommendations: [],
+    unsupported_assertions: [],
     angle_issues: [],
     suggested_split: [],
   }),

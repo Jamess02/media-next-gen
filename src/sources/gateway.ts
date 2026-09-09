@@ -15,6 +15,7 @@
  */
 
 import type { AuditLog } from "../audit/audit-log.js";
+import { redactText } from "../audit/redaction.js";
 import { RawEventSchema, type RawEvent } from "../protocol/schema.js";
 import { classifySource, secondariesShadowedByPrimary } from "./registry.js";
 import type { SourceAdapter, SourceQuery } from "./types.js";
@@ -58,10 +59,17 @@ export class SourceGateway {
       if (adapter === undefined) continue;
 
       if (settled.status === "rejected") {
-        const error =
+        // Caviardage EN PLUS de celui de `SourceFetchError`. Un adaptateur peut
+        // lever une erreur d'un autre type — `JSON.parse`, une bibliotheque, un
+        // `TypeError` — dont le message reprendrait l'URL avec sa clef. Ce champ
+        // part dans les incertitudes declarees de l'article, donc sur le site
+        // public et dans le depot : c'est le dernier point ou l'on peut encore
+        // l'arreter.
+        const error = redactText(
           settled.reason instanceof Error
             ? settled.reason.message
-            : String(settled.reason);
+            : String(settled.reason),
+        ).redacted;
         failures.push({ adapterId: adapter.id, error });
         await this.audit.record({
           kind: "source",

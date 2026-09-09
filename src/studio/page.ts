@@ -17,6 +17,7 @@ export const STUDIO_PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="jeton-studio" data-jeton="__JETON__">
 <title>Studio — Media Next Gen</title>
 <style>
 :root {
@@ -113,6 +114,10 @@ ul.brut li{padding:4px 0;border-bottom:1px dotted var(--trait);font-size:11px;
 </div>
 
 <script>
+// Jeton de session, depose par le serveur dans la page. Il accompagne chaque
+// appel a l API : une page tierce ne peut pas le deviner, donc pas declencher
+// le pipeline a l aveugle.
+const JETON = document.querySelector("meta[name=jeton-studio]").dataset.jeton;
 const $ = (id) => document.getElementById(id);
 const flux = $("flux");
 
@@ -132,7 +137,7 @@ function ligne(etiquette, texte, classe) {
 }
 
 async function charger() {
-  const r = await fetch("/api/etat");
+  const r = await fetch("/api/etat?jeton=" + JETON);
   const etat = await r.json();
 
   const sel = $("provider");
@@ -199,7 +204,7 @@ $("lancer").addEventListener("click", () => {
     provider: $("provider").value,
     sources: $("sources").checked ? "reelles" : "simulees",
   });
-  const es = new EventSource("/api/publier?" + p.toString());
+  const es = new EventSource("/api/publier?jeton=" + JETON + "&" + p.toString());
 
   es.addEventListener("demarrage", (e) => {
     const d = JSON.parse(e.data);
@@ -240,7 +245,7 @@ $("generer").addEventListener("click", async () => {
   const b = $("generer");
   b.disabled = true;
   try {
-    const r = await fetch("/api/site", { method: "POST" });
+    const r = await fetch("/api/site?jeton=" + JETON, { method: "POST" });
     const d = await r.json();
     ligne("site", d.publies + " article(s), " + d.pages + " page(s) -> " + d.dossier, "ok");
     for (const rej of d.rejetes) ligne("rejete", rej.file + " — " + rej.reason, "attention");

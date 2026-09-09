@@ -18,6 +18,7 @@
  * fait, y compris et surtout quand il refuse de publier.
  */
 
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -231,18 +232,113 @@ export interface StudioOptions {
   port?: number;
 }
 
-export async function startStudio(options: StudioOptions = {}): Promise<string> {
+export interface StudioInstance {
+  url: string;
+  close: () => Promise<void>;
+}
+
+/* -------------------------------------------------------------------------
+ * Confinement au navigateur de l'utilisateur
+ *
+ * Ecouter sur 127.0.0.1 protege du reseau, PAS du navigateur : une page ouverte
+ * dans un autre onglet peut emettre des requetes vers la boucle locale. Deux
+ * scenarios, tous deux realisables sans faille de navigateur :
+ *
+ *  - requete simple inter-origine. `<img src="http://127.0.0.1:5173/api/
+ *    publier?provider=anthropic&sujet=...">` part sans pre-vol CORS. La page
+ *    attaquante ne lit pas la reponse — mais le pipeline a demarre, avec des
+ *    appels FACTURES et des fichiers ecrits ;
+ *  - reattachement DNS. Un domaine de l'attaquant repointe vers 127.0.0.1
+ *    apres chargement ; le navigateur voit alors une meme origine et la reponse
+ *    devient lisible. L'en-tete `Host` trahit l'attaque : il porte le domaine
+ *    de l'attaquant, jamais la boucle locale.
+ *
+ * Trois controles, parce qu'aucun ne suffit seul : `Host` casse le
+ * reattachement, `Origin` casse l'appel inter-origine explicite, et le jeton
+ * casse l'appel AVEUGLE, celui qui declenche sans lire.
+ * ---------------------------------------------------------------------- */
+
+const HOTES_ADMIS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+/** Vrai si l'en-tete Host designe bien la boucle locale. */
+function hoteLocal(host: string | undefined): boolean {
+  if (host === undefined) return false;
+  // Le port est ignore : c'est l'HOTE qui distingue une requete legitime d'un
+  // reattachement DNS.
+  const sansPort = host.replace(/:\d+$/, "").toLowerCase();
+  return HOTES_ADMIS.has(sansPort);
+}
+
+/**
+ * Vrai si l'origine declaree est la notre.
+ *
+ * Une origine ABSENTE est acceptee : les requetes de meme origine n'en portent
+ * pas toujours, et `EventSource` n'en envoie pas. C'est precisement pourquoi le
+ * jeton existe — l'absence d'origine ne doit pas valoir laissez-passer.
+ */
+function origineAdmise(origin: string | undefined): boolean {
+  if (origin === undefined || origin === "null") return origin === undefined;
+  try {
+    return hoteLocal(new URL(origin).host);
+  } catch {
+    return false;
+  }
+}
+
+export async function startStudio(
+  options: StudioOptions = {},
+): Promise<StudioInstance> {
   const port = options.port ?? 5173;
+
+  // Un secret par DEMARRAGE. Fixe, il finirait dans une capture d'ecran ou un
+  // historique de navigation et vaudrait pour toutes les sessions suivantes.
+  const jeton = randomUUID().replace(/-/g, "");
+
+  /** Methodes admises par route. Tout le reste est refuse. */
+  const METHODES: Record<string, readonly string[]> = {
+    "/": ["GET"],
+    "/api/etat": ["GET"],
+    "/api/publier": ["GET"], // EventSource ne sait faire que du GET.
+    "/api/site": ["POST"],
+  };
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
     void (async () => {
       try {
+        if (!hoteLocal(req.headers.host)) {
+          json(res, 403, {
+            erreur:
+              "hote non local : requete refusee (protection contre le reattachement DNS)",
+          });
+          return;
+        }
+        if (!origineAdmise(req.headers.origin)) {
+          json(res, 403, { erreur: "origine etrangere : requete refusee" });
+          return;
+        }
+
+        const methodes = METHODES[url.pathname];
+        if (methodes !== undefined && !methodes.includes(req.method ?? "GET")) {
+          json(res, 405, { erreur: `methode non admise sur ${url.pathname}` });
+          return;
+        }
+
+        // La PAGE reste ouvrable sans jeton : c'est elle qui le distribue.
+        // Tout le reste l'exige.
+        if (url.pathname !== "/" && url.searchParams.get("jeton") !== jeton) {
+          json(res, 403, {
+            erreur:
+              "jeton de session absent ou invalide. Ouvrir le studio depuis la page servie par ce serveur.",
+          });
+          return;
+        }
+
         switch (url.pathname) {
           case "/":
             res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-            res.end(STUDIO_PAGE);
+            res.end(STUDIO_PAGE.replace("__JETON__", jeton));
             return;
           case "/api/etat":
             json(res, 200, {
@@ -280,5 +376,18 @@ export async function startStudio(options: StudioOptions = {}): Promise<string> 
     server.listen(port, "127.0.0.1", resolve);
   });
 
-  return `http://127.0.0.1:${port}`;
+  // Port reel : `port: 0` laisse le systeme en choisir un libre, ce dont les
+  // tests ont besoin pour tourner en parallele sans se disputer 5173.
+  const adresse = server.address();
+  const portReel =
+    adresse !== null && typeof adresse === "object" ? adresse.port : port;
+
+  return {
+    url: `http://127.0.0.1:${portReel}`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections?.();
+        server.close(() => resolve());
+      }),
+  };
 }

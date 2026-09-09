@@ -246,6 +246,7 @@ describe("FRED — clef dans l'URL et valeurs manquantes", () => {
   const adapter = fredAdapter({
     seriesId: "FEDFUNDS",
     label: "Taux des fonds federaux",
+    unit: "%",
     apiKey: "CLEF_DE_TEST",
     limit: 3,
   });
@@ -265,7 +266,9 @@ describe("FRED — clef dans l'URL et valeurs manquantes", () => {
       ]),
     );
     const resume = (await adapter.fetch(QUERY)).observations[0]?.resume ?? "";
-    expect(resume).toMatch(/4\.33 au 2026-07-01/);
+    // L'unite accompagne la valeur : une serie ne se branche plus sans elle,
+    // depuis qu'un modele a redige "6 737 204 (unites)" faute de la trouver.
+    expect(resume).toMatch(/4\.33 % au 2026-07-01/);
     expect(resume).toMatch(/1\/2 observations renseignees/);
     expect(resume).toMatch(/manquantes : 2026-08-01/);
   });

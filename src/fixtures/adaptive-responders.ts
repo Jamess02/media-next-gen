@@ -226,18 +226,67 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
     // la publication, exactement comme un vrai modele : c'est la meme regle qui
     // s'applique aux deux, et c'est le but.
     const divulgations = divulgations_obligatoires ?? [];
+
+    // NE RECOPIE PLUS LE TEXTE DES CLAIMS.
+    //
+    // La version precedente construisait le corps en collant chaque claim sous
+    // sa propre reference. C'est exactement le defaut qu'un vrai modele a
+    // reproduit en production, et que `BODY_IS_CLAIM_PASTE` refuse desormais.
+    // Un responder simule doit se soumettre a la meme regle : s'il en etait
+    // dispense, les tests du pipeline vaudraient pour un pipeline qui n'existe
+    // pas.
+    const nature: Record<string, string> = {
+      fait: "un constat direct",
+      estimation: "un chiffre calcule a partir de donnees incompletes",
+      "inférence": "une deduction tiree de plusieurs elements",
+      "scénario": "une projection conditionnelle",
+    };
+
+    const paragraphes = claims_validees_immuables.map((c, i) => {
+      const rang = ["premier", "deuxieme", "troisieme"][i] ?? `${i + 1}e`;
+      return (
+        `Le ${rang} element retenu est ${nature[c.type] ?? "une affirmation"} ` +
+        `[[${c.id}]]. Sa formulation exacte, sa source et sa date d'observation ` +
+        `figurent dans la fiche de preuve jointe a cet article : le lecteur peut ` +
+        `donc remonter a l'emetteur sans passer par ce texte. Ce que cette ` +
+        `affirmation ne dit pas compte autant : elle ne couvre pas les periodes ` +
+        `anterieures a la fenetre de collecte, et ne se prononce pas sur les ` +
+        `grandeurs voisines que la meme source publie separement.`
+      );
+    });
+
     return {
       title: `Lecture datee : ${sujet}`,
       body: [
-        `Etat des donnees publiques disponibles sur "${sujet}" a la date de collecte.`,
+        `Cet article documente l'etat des donnees publiques disponibles sur ` +
+          `"${sujet}" a la date de collecte. Il ne prolonge pas ces donnees au-dela ` +
+          `de ce qu'elles portent, et signale a chaque etape ce qui releve de ` +
+          `l'observation et ce qui n'en releve pas.`,
         "",
         ...(divulgations.length > 0 ? [...divulgations, ""] : []),
-        ...claims_validees_immuables.map((c) => `${c.text} [[${c.id}]]`),
+        ...paragraphes.flatMap((p) => [p, ""]),
+        `Prises ensemble, ces affirmations decrivent un etat de publication, pas ` +
+          `une dynamique. Chacune reprend une donnee publiee par son emetteur ; ` +
+          `aucune n'a fait l'objet d'un recoupement entre sources independantes, ` +
+          `et le rapprochement de deux series produites par des institutions ` +
+          `differentes n'est pas fait ici.`,
         "",
-        "Chaque affirmation ci-dessus reprend une donnee publiee par son emetteur. Aucune n'a fait l'objet d'un recoupement entre sources independantes.",
+        `La date de collecte compte autant que la valeur relevee. Une meme serie ` +
+          `consultee deux semaines plus tard peut porter un chiffre different sans ` +
+          `qu'aucun evenement ne se soit produit entre-temps : plusieurs des ` +
+          `institutions citees revisent leurs publications apres diffusion, et la ` +
+          `date d'observation retenue ici est celle de la lecture, distincte de ` +
+          `celle du fait.`,
+        "",
+        `Ce qui reste ouvert : la prochaine publication de chaque source dira si ` +
+          `les valeurs retenues sont revisees, plusieurs des series citees etant ` +
+          `sujettes a revision apres leur premiere diffusion. Les elements ` +
+          `absents du catalogue de sources ne sont pas traites, et leur absence ` +
+          `ne vaut pas absence de fait.`,
       ].join("\n"),
       uncertainty_flags: [
         "Article genere sans jugement editorial humain : les affirmations reprennent les donnees publiees sans verification de leur correspondance precise.",
+        "Corps produit par un responder simule : il respecte les planchers de redaction, mais ne constitue pas un travail journalistique.",
       ],
     };
   },
@@ -248,6 +297,7 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
     justification:
       "Le texte se limite a restituer des donnees publiees, chacune rattachee a sa source et a sa date. Aucune conclusion ne deborde ce que les claims soutiennent, aucune orientation d'action n'est formulee.",
     implicit_recommendations: [],
+    unsupported_assertions: [],
     angle_issues: [],
     suggested_split: [],
   }),
