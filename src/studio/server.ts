@@ -35,6 +35,10 @@ import {
   type ProviderName,
 } from "../llm/providers.js";
 import { EditorialPipeline } from "../pipeline.js";
+import {
+  TAILLE_VAGUE,
+  executerVague,
+} from "../planification/vagues.js";
 import { ArticleSchema } from "../protocol/schema.js";
 import { buildSourceCatalogue } from "../sources/catalogue.js";
 import { MOCK_ADAPTERS } from "../sources/mock-sources.js";
@@ -237,6 +241,81 @@ export interface StudioInstance {
   close: () => Promise<void>;
 }
 
+/**
+ * Une vague de six articles, declenchee a la main depuis le studio.
+ *
+ * MEME MOTEUR que la boucle automatique : `executerVague`. Deux chemins qui
+ * composeraient leurs vagues differemment finiraient par diverger, et le bouton
+ * cesserait de reproduire ce que l'automatisation fait vraiment.
+ *
+ * L'index de rotation est passe par l'appelant pour que deux declenchements
+ * manuels successifs ne redonnent pas les six memes sujets.
+ */
+async function executerVagueSse(
+  res: ServerResponse,
+  params: URLSearchParams,
+): Promise<void> {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  const envoyer = (type: string, data: unknown): void => {
+    res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const provider = (params.get("provider") ?? "mock") as ProviderName;
+  const index = Number(params.get("index") ?? "0");
+  const audit = new AuditLog();
+
+  try {
+    const resolved = resolveProvider({
+      provider,
+      audit,
+      responders: ADAPTIVE_RESPONDERS,
+    });
+    const catalogue = buildSourceCatalogue();
+
+    envoyer("vague-demarrage", {
+      index,
+      taille: TAILLE_VAGUE,
+      modele: resolved.client.modelId,
+      sources: catalogue.adapters.length,
+    });
+
+    const rapport = await executerVague({
+      index: Number.isFinite(index) && index >= 0 ? index : 0,
+      executer: (sujet) =>
+        new EditorialPipeline({
+          ctx: { llm: resolved.client, audit },
+          adapters: catalogue.adapters,
+          mode: sujet.mode,
+        }).run(sujet.sujet),
+      onProgres: (fait, total, sujet) =>
+        envoyer("vague-progres", {
+          fait,
+          total,
+          mode: sujet.mode,
+          sujet: sujet.sujet,
+        }),
+    });
+
+    for (const l of rapport.lignes) envoyer("vague-ligne", l);
+    envoyer("vague-fin", {
+      publies: rapport.publies,
+      arretes: rapport.arretes,
+      erreurs: rapport.erreurs.length,
+    });
+  } catch (error) {
+    envoyer("erreur", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    envoyer("fin", {});
+    res.end();
+  }
+}
+
 /* -------------------------------------------------------------------------
  * Confinement au navigateur de l'utilisateur
  *
@@ -299,6 +378,7 @@ export async function startStudio(
     "/": ["GET"],
     "/api/etat": ["GET"],
     "/api/publier": ["GET"], // EventSource ne sait faire que du GET.
+    "/api/vague": ["GET"],   // idem : SSE, donc GET.
     "/api/site": ["POST"],
   };
 
@@ -349,6 +429,9 @@ export async function startStudio(
             return;
           case "/api/publier":
             await executer(req, res, url.searchParams);
+            return;
+          case "/api/vague":
+            await executerVagueSse(res, url.searchParams);
             return;
           case "/api/site": {
             const r = await buildSite();

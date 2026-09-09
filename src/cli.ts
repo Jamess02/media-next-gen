@@ -40,6 +40,11 @@ import {
   type ChangelogType,
 } from "./protocol/constants.js";
 import { EditorialPipeline, type PipelineStage } from "./pipeline.js";
+import {
+  INTERVALLE_VAGUE_MS,
+  TAILLE_VAGUE,
+  executerVague,
+} from "./planification/vagues.js";
 import { buildSourceCatalogue } from "./sources/catalogue.js";
 import { MOCK_ADAPTERS } from "./sources/mock-sources.js";
 import type { SourceAdapter } from "./sources/types.js";
@@ -63,6 +68,15 @@ interface PublishCommand {
   mode: ArticleMode;
 }
 
+interface VagueCommand {
+  kind: "vague";
+  provider: ProviderName;
+  /** Boucle toutes les quatre heures, ou une seule vague. */
+  boucle: boolean;
+  /** Numero de depart de la rotation des themes. */
+  depart: number;
+}
+
 interface ReviseCommand {
   kind: "revise";
   articleId: string;
@@ -75,6 +89,7 @@ type Command =
   | ReviseCommand
   | { kind: "list-providers" }
   | { kind: "validate"; articleId: string; reviewer: string; note?: string }
+  | VagueCommand
   | { kind: "verify-journal" }
   | { kind: "build-site"; drafts: boolean }
   | { kind: "preview"; port: number; drafts: boolean }
@@ -137,6 +152,15 @@ function parseArgs(argv: readonly string[]): Command {
     };
   }
 
+  if (positional[0] === "vague" || positional[0] === "vagues") {
+    const depart = Number(positional[1]);
+    return {
+      kind: "vague",
+      provider,
+      boucle: positional[0] === "vagues",
+      depart: Number.isFinite(depart) && depart >= 0 ? depart : 0,
+    };
+  }
   if (positional[0] === "journal") return { kind: "verify-journal" };
   if (positional[0] === "site") return { kind: "build-site", drafts };
   if (positional[0] === "preview") {
@@ -528,6 +552,84 @@ async function verifyJournalCommand(): Promise<void> {
   console.log("signe, ou l'empreinte publiee ailleurs.");
 }
 
+/**
+ * Une vague de six articles, ou une boucle de vagues toutes les quatre heures.
+ *
+ * PRODUIT DES BROUILLONS, JAMAIS DES PUBLICATIONS. Trente-six textes par jour
+ * atterrissent dans `output/` et attendent une relecture nommee. Le goulot est
+ * la relecture, pas la production — et il doit se voir.
+ */
+async function vagueCommand(command: VagueCommand): Promise<void> {
+  const audit = new AuditLog();
+  let resolved: ResolvedProvider;
+  try {
+    resolved = resolveProvider({
+      provider: command.provider,
+      audit,
+      responders: ADAPTIVE_RESPONDERS,
+    });
+  } catch (error) {
+    if (error instanceof ProviderUnavailable) {
+      console.error(error.message);
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
+
+  const catalogue = buildSourceCatalogue();
+  console.log(`Modele  : ${resolved.client.modelId}`);
+  console.log(`Sources : ${catalogue.adapters.length} branchee(s)`);
+  console.log(`Vagues  : ${TAILLE_VAGUE} articles`);
+  if (command.boucle) {
+    console.log(
+      `Cadence : toutes les ${INTERVALLE_VAGUE_MS / 3_600_000} h — Ctrl+C pour arreter.`,
+    );
+  }
+  console.log("");
+  console.log("Les articles produits sont des BROUILLONS. Aucun n'est publie :");
+  console.log("la relecture nommee reste la vôtre (npm run dev -- valider ...).");
+  console.log("");
+
+  let index = command.depart;
+  for (;;) {
+    const debut = new Date();
+    console.log(`--- VAGUE ${index} — ${debut.toISOString()}`);
+
+    const rapport = await executerVague({
+      index,
+      executer: (sujet) =>
+        new EditorialPipeline({
+          ctx: { llm: resolved.client, audit },
+          adapters: catalogue.adapters,
+          mode: sujet.mode,
+        }).run(sujet.sujet),
+      onProgres: (fait, total, sujet) =>
+        console.log(`  [${fait}/${total}] ${sujet.mode.padEnd(10)} ${sujet.sujet}`),
+    });
+
+    console.log("");
+    for (const l of rapport.lignes) {
+      const marque = l.etat === "publie" ? "PUBLIE " : l.etat === "arrete" ? "arrete " : "ERREUR ";
+      console.log(`  ${marque} ${l.mode.padEnd(10)} ${l.sujet}`);
+      if (l.motif.length > 0) console.log(`           ${l.motif.slice(0, 140)}`);
+    }
+    console.log("");
+    console.log(
+      `VAGUE ${index} TERMINEE — ${rapport.publies} brouillon(s), ` +
+        `${rapport.arretes} arret(s), ${rapport.erreurs.length} erreur(s)`,
+    );
+
+    if (!command.boucle) return;
+
+    index += 1;
+    const prochaine = new Date(Date.now() + INTERVALLE_VAGUE_MS);
+    console.log(`Prochaine vague : ${prochaine.toISOString()}`);
+    console.log("");
+    await new Promise((r) => setTimeout(r, INTERVALLE_VAGUE_MS));
+  }
+}
+
 async function studioCommand(port: number): Promise<void> {
   const studio = await startStudio({ port });
   console.log(`STUDIO — interface de pilotage sur ${studio.url}`);
@@ -555,6 +657,8 @@ async function main(): Promise<void> {
       return;
     case "validate":
       return validateCommand(command);
+    case "vague":
+      return vagueCommand(command);
     case "verify-journal":
       return verifyJournalCommand();
     case "build-site":

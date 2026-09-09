@@ -68,6 +68,7 @@ button[disabled]{opacity:.45;cursor:not-allowed}
   border-radius:3px;margin-right:4px;color:var(--gris)}
 .badge.n3,.badge.n4{color:var(--fort)} .badge.n2{color:var(--moyen)}
 .badge.n0,.badge.n1{color:var(--faible)}
+.note-vague{color:var(--gris);font-size:11px}
 .vide{color:var(--gris);font-size:12px;padding:14px;border:1px dashed var(--trait);border-radius:4px}
 ul.brut{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto}
 ul.brut li{padding:4px 0;border-bottom:1px dotted var(--trait);font-size:11px;
@@ -96,6 +97,10 @@ ul.brut li{padding:4px 0;border-bottom:1px dotted var(--trait);font-size:11px;
       <div class="ligne">
         <button id="lancer">lancer le pipeline</button>
         <button id="generer" class="secondaire">generer le site</button>
+      </div>
+      <div class="ligne">
+        <button id="vague">vague de 6 articles</button>
+        <span class="note-vague">4 constats + 2 prospectifs — brouillons, jamais publies</span>
       </div>
     </fieldset>
 
@@ -255,6 +260,56 @@ $("generer").addEventListener("click", async () => {
 });
 
 charger();
+
+// --- Vague manuelle de six articles ---------------------------------------
+// Le compteur est garde dans le navigateur pour que deux declenchements
+// successifs ne redonnent pas les six memes sujets. Il tombe a zero si le
+// stockage est indisponible : moins bien, mais jamais bloquant.
+function indexVague() {
+  try {
+    return Number(localStorage.getItem("vague-index") || "0") || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+$("vague").addEventListener("click", () => {
+  const b = $("vague");
+  b.disabled = true;
+  const index = indexVague();
+  const p = new URLSearchParams({
+    jeton: JETON,
+    provider: $("provider").value,
+    index: String(index),
+  });
+  const es = new EventSource("/api/vague?" + p.toString());
+
+  es.addEventListener("vague-demarrage", (e) => {
+    const d = JSON.parse(e.data);
+    ligne("vague", "vague " + d.index + " — " + d.taille + " articles, " + d.modele + ", " + d.sources + " sources");
+  });
+  es.addEventListener("vague-progres", (e) => {
+    const d = JSON.parse(e.data);
+    ligne("etape", "[" + d.fait + "/" + d.total + "] " + d.mode + " — " + d.sujet);
+  });
+  es.addEventListener("vague-ligne", (e) => {
+    const d = JSON.parse(e.data);
+    const niveau = d.etat === "publie" ? "ok" : d.etat === "arrete" ? "attention" : "erreur";
+    ligne(d.etat, d.mode + " — " + d.sujet + (d.motif ? " — " + d.motif : ""), niveau);
+  });
+  es.addEventListener("vague-fin", (e) => {
+    const d = JSON.parse(e.data);
+    ligne("vague", d.publies + " brouillon(s), " + d.arretes + " arret(s), " + d.erreurs + " erreur(s)", d.publies > 0 ? "ok" : "attention");
+    try { localStorage.setItem("vague-index", String(index + 1)); } catch (e) {}
+  });
+  es.addEventListener("erreur", (e) => ligne("erreur", JSON.parse(e.data).message, "erreur"));
+  es.addEventListener("fin", () => {
+    es.close();
+    b.disabled = false;
+    charger();
+  });
+  es.onerror = () => { es.close(); b.disabled = false; };
+});
 </script>
 </body>
 </html>`;
