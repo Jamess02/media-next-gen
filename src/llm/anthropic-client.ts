@@ -37,6 +37,22 @@ export interface AnthropicLlmClientOptions {
    * Un serveur qu'on ecrit soi-meme accepte ce qu'on lui envoie.
    */
   baseUrl?: string;
+  /**
+   * Authentifie par `Authorization: Bearer` au lieu de `x-api-key`.
+   *
+   * DEROGATION POUR SERVICE COMPATIBLE, pas un reglage de confort. L'API
+   * d'Anthropic attend `x-api-key`, et c'est la cible normale. Mais Ollama
+   * Cloud expose un endpoint compatible Anthropic sur `/v1/messages` en
+   * exigeant un jeton porteur — mesure du 2026-09-09 :
+   *
+   *   x-api-key: <clef>            -> HTTP 401 authentication_error
+   *   Authorization: Bearer <clef> -> HTTP 200
+   *
+   * C'est ce qui permet enfin d'exercer ce fichier contre un VRAI serveur, sans
+   * clef facturee. La documentation d'Ollama montrait `x-api-key: ollama` pour
+   * le serveur local, ce qui aurait fait chercher l'erreur du mauvais cote.
+   */
+  bearerAuth?: boolean;
 }
 
 export class AnthropicLlmClient implements LlmClient {
@@ -51,8 +67,18 @@ export class AnthropicLlmClient implements LlmClient {
     this.audit = options.audit;
     // Sans apiKey explicite, le SDK resout ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN
     // ou un profil `ant auth login`. On ne code jamais une clef en dur.
+    // En mode porteur, `apiKey` est mis a `null` pour que le SDK n'emette PAS
+    // `x-api-key` : envoyer les deux en-tetes laisserait le serveur choisir, et
+    // un 401 deviendrait indechiffrable.
     this.client = new Anthropic({
-      ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+      ...(options.bearerAuth === true
+        ? {
+            apiKey: null,
+            defaultHeaders: { authorization: `Bearer ${options.apiKey ?? ""}` },
+          }
+        : options.apiKey === undefined
+          ? {}
+          : { apiKey: options.apiKey }),
       ...(options.baseUrl === undefined ? {} : { baseURL: options.baseUrl }),
     });
   }

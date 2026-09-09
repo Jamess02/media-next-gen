@@ -47,6 +47,19 @@ export interface ProviderSpec {
    */
   enforcesSchema?: boolean;
   /**
+   * Le fournisseur parle-t-il le protocole ANTHROPIC (`/v1/messages`) plutot
+   * que le protocole compatible OpenAI ?
+   *
+   * Change de client, pas seulement d'URL : c'est `anthropic-client.ts` qui
+   * sera utilise. Voir l'entree `ollama-anthropic`.
+   */
+  anthropicProtocol?: boolean;
+  /**
+   * Authentifie par `Authorization: Bearer` au lieu de `x-api-key`.
+   * Mesure, pas supposition — voir `anthropic-client.ts`.
+   */
+  bearerAuth?: boolean;
+  /**
    * Plafond de tokens de sortie.
    *
    * Compte dans le quota par minute chez plusieurs fournisseurs : Groq
@@ -130,6 +143,49 @@ export const FREE_PROVIDERS: Record<string, ProviderSpec> = {
       "Ollama LOCAL, aucune clef, aucune limite. Demande l'installation d'Ollama " +
       "et le telechargement d'un modele (plusieurs Go). A ne pas confondre avec " +
       "`ollama-cloud`, qui est le service heberge.",
+  },
+  /**
+   * OLLAMA CLOUD, EN PARLANT LE PROTOCOLE ANTHROPIC.
+   *
+   * Raison d'etre : `anthropic-client.ts` etait le seul module du projet a
+   * n'avoir jamais tourne contre une vraie API, le mode `live` exigeant une
+   * clef facturee. Ollama Cloud expose `/v1/messages` en compatibilite
+   * Anthropic ; le SDK peut donc y etre dirige, et sa requete est alors recue
+   * et traitee par un vrai serveur.
+   *
+   * MESURE DU 2026-09-09, et elle a tranche une ambiguite de la documentation
+   * d'Ollama, qui montre `x-api-key: ollama` pour le serveur LOCAL :
+   *
+   *   POST https://ollama.com/v1/messages
+   *     x-api-key: <clef>            -> HTTP 401 authentication_error
+   *     Authorization: Bearer <clef> -> HTTP 200
+   *
+   * Le SDK Anthropic envoyant `x-api-key` par defaut, un branchement naif
+   * aurait echoue et fait chercher l'erreur du mauvais cote.
+   */
+  "ollama-anthropic": {
+    // Le SDK ajoute lui-meme `/v1/messages` : la base s'arrete au domaine.
+    baseUrl: "https://ollama.com",
+    defaultModel: "gpt-oss:120b",
+    envKey: "OLLAMA_API_KEY",
+    signup: "https://ollama.com/settings/keys",
+    anthropicProtocol: true,
+    bearerAuth: true,
+    notes:
+      "SEUL mode gratuit qui exerce reellement `anthropic-client.ts`. " +
+      "NE TERMINE PAS UN PIPELINE, et c'est mesure : Ollama n'applique pas " +
+      "`output_config.format`, le modele rend donc un JSON hors schema des le " +
+      "Veilleur (champ `retained` absent, 2026-09-09). Ce mode sert a exercer " +
+      "le CLIENT, pas a produire un article. " +
+      "Ce qu'il valide : la forme de la requete emise par le SDK, " +
+      "l'authentification par jeton porteur, le transport vers un vrai " +
+      "serveur, et surtout le CHEMIN D'ERREUR — la conversion d'une sortie " +
+      "non conforme en `LlmContractError` typee, verifiee en conditions " +
+      "reelles, ce qui est justement la partie la plus facile a se tromper. " +
+      "Ce qu'il NE valide PAS : que l'API d'Anthropic accepte cette requete, " +
+      "ni le chemin nominal — un service compatible reste un service tiers, " +
+      "et la compatibilite est partielle (ni cache de prompt, ni " +
+      "`tool_choice`, ni traitement par lots).",
   },
   "ollama-cloud": {
     baseUrl: "https://ollama.com/v1",
@@ -258,8 +314,34 @@ export function resolveProvider(input: ResolveProviderInput): ResolvedProvider {
   notices.push(
     "Fournisseur gratuit : la mecanique du pipeline est testee (prompts, schemas, " +
       "gate, journalisation), pas la qualite editoriale.",
-    "anthropic-client.ts n'est PAS exerce par ce mode : il reste le seul fichier " +
-      "jamais execute contre son API reelle.",
+  );
+
+  // Un fournisseur qui parle le protocole Anthropic change de CLIENT, pas
+  // seulement d'URL. C'est le seul chemin gratuit qui exerce reellement
+  // `anthropic-client.ts`.
+  if (spec.anthropicProtocol === true) {
+    notices.push(
+      "Ce mode exerce `anthropic-client.ts` contre un vrai serveur — mais un " +
+        "serveur COMPATIBLE, pas l'API d'Anthropic.",
+      "Il n'ira PAS jusqu'a un article : Ollama n'applique pas le schema de " +
+        "sortie, le Veilleur echouera donc sur un JSON hors contrat. C'est " +
+        "attendu — ce mode exerce le client, pas la chaine editoriale.",
+    );
+    return {
+      client: new AnthropicLlmClient({
+        audit: input.audit,
+        model: overrideModel ?? spec.defaultModel,
+        baseUrl: spec.baseUrl,
+        ...(apiKey === undefined ? {} : { apiKey }),
+        ...(spec.bearerAuth === true ? { bearerAuth: true } : {}),
+      }),
+      notices,
+    };
+  }
+
+  notices.push(
+    "anthropic-client.ts n'est PAS exerce par ce mode. Pour l'exercer sans " +
+      "facturation : --provider=ollama-anthropic.",
   );
 
   return {
