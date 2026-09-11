@@ -80,10 +80,9 @@ Mesuré le 2026-09-11 : ce point vaut exactement l'instantané journalier de `hi
 - **Le prix sur une plateforme donnée.**
 - **Une donnée sans attribution.** Les conditions du plan Demo **exigent** l'attribution, visible et proche de la donnée. Règle bloquante : `AGREGAT_NON_ATTRIBUE`.
 
-**Deux points à trancher par l'éditeur**
+**Attribution sur le site — tranchée le 2026-09-12.** Tout article qui s'appuie sur CoinGecko affiche, juste après ses chiffres et avant les fiches de preuve, la mention « Données de prix fournies par CoinGecko ». La mention entière est le lien vers coingecko.com, ce qui vaut citation et lien de retour en une phrase. Elle est posée par le code depuis le registre ([`sources-de-marche.ts`](../src/protocol/sources-de-marche.ts)) : une consigne de rédaction s'oublie, et cet oubli-là romprait la licence. Le logo que le guide mentionne n'est pas affiché — le site ne porte aucune image.
 
-- **La forme exacte de l'attribution sur le site.** Le guide de CoinGecko demande aussi un lien vers coingecko.com.
-- **Le cadre d'usage.** Selon le résumé de la page tarifaire, le plan Demo n'est pas destiné à un usage commercial. Je ne l'ai pas vérifié dans le texte des conditions : à relire avant toute monétisation.
+**Reste à trancher : le cadre d'usage.** Selon le résumé de la page tarifaire, le plan Demo n'est pas destiné à un usage commercial. Je ne l'ai pas vérifié dans le texte des conditions : à relire avant toute monétisation.
 
 **Limite non mesurée.** La profondeur d'historique du palier gratuit est limitée. Au-delà, une URL citée pourrait cesser de se rejouer.
 

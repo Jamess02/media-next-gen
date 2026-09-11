@@ -200,6 +200,61 @@ describe("page d'article", () => {
     expect(html).toMatch(/class="revise"/);
     expect(html).toMatch(/historique des corrections/);
   });
+
+  it("affiche l'attribution exigee par la licence CoinGecko, pres des chiffres", () => {
+    // Le plan Demo est gratuit A UNE CONDITION : une attribution visible,
+    // proche de la donnee, avec un lien vers coingecko.com. La ligne est posee
+    // PAR LE CODE, depuis le registre des sources de marche : une consigne de
+    // redaction s'oublie, et l'oubli serait ici une violation de licence.
+    const html = articlePage(
+      article({
+        claims: [
+          claim({
+            sources: [
+              {
+                url: "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=usd&from=1789084200&to=1789085400",
+                tier: 2,
+                date_observed: "2026-09-11T08:00:00Z",
+                date_published: "2026-09-11T00:00:00Z",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(html).toMatch(/Donnees de prix fournies par/);
+    expect(html).toMatch(/href="https:\/\/www\.coingecko\.com"/);
+    // « Proche de la donnee » : avant les fiches de preuve, pas en pied de page.
+    expect(html.indexOf("www.coingecko.com")).toBeLessThan(
+      html.indexOf('<div class="section">preuves</div>'),
+    );
+  });
+
+  it("n'affiche aucune attribution quand aucune source ne l'exige", () => {
+    expect(articlePage(article())).not.toMatch(/Donnees de prix fournies par/);
+
+    // Binance impose « sur Binance » DANS LE TEXTE — une exigence editoriale,
+    // pas une ligne de licence. Les deux ne se confondent pas.
+    const binance = articlePage(
+      article({
+        claims: [
+          claim({
+            text: "Sur Binance, le bitcoin a cloture a 76 568,72 USDT le 10 septembre 2026.",
+            sources: [
+              {
+                url: "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d",
+                tier: 1,
+                date_observed: "2026-09-11T08:00:00Z",
+                date_published: "2026-09-10T23:59:59Z",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(binance).not.toMatch(/Donnees de prix fournies par/);
+  });
 });
 
 describe("index", () => {

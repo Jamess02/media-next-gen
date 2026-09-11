@@ -19,6 +19,7 @@ import {
 } from "../protocol/constants.js";
 import type { ReviewRecord } from "../editorial/validation.js";
 import { formatFigure, rankedFigures } from "../protocol/figures.js";
+import { attributionsDeLicence } from "../protocol/sources-de-marche.js";
 import { interestsForUrls } from "../protocol/interests.js";
 import type { Article, Claim } from "../protocol/schema.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
@@ -391,6 +392,22 @@ function renderFigureTable(article: Article): string {
 </div>`;
 }
 
+/**
+ * Attribution exigee par la licence d'une source de donnees (CoinGecko).
+ *
+ * Placee juste apres les chiffres : le guide demande une mention VISIBLE et
+ * PROCHE de la donnee, avec un lien. Un pied de page ne remplit ni l'une ni
+ * l'autre condition. La mention entiere est le lien, ce qui vaut citation et
+ * lien de retour en une seule phrase.
+ */
+function renderAttributions(article: Article): string {
+  const dues = attributionsDeLicence(article.claims);
+  if (dues.length === 0) return "";
+  return `<p class="entree-resume attribution-licence">${dues
+    .map((a) => `<a href="${escapeHtml(a.lien)}">${escapeHtml(a.texte)}</a>`)
+    .join(" &middot; ")}</p>`;
+}
+
 export function articlePage(
   article: Article,
   review?: ReviewRecord,
@@ -441,6 +458,7 @@ export function articlePage(
   ${avertissement}
   <div class="corps">${corps}</div>
   ${renderFigureTable(article)}
+  ${renderAttributions(article)}
   <div class="section">preuves</div>
   ${article.claims.map(renderClaim).join("")}
   ${renderReview(review)}

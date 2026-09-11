@@ -40,6 +40,15 @@ export interface SourceDeMarche {
   aliases: readonly string[];
   /** Unite de cotation quand elle n'est PAS une monnaie officielle. */
   cotation?: string;
+  /**
+   * Attribution exigee par la LICENCE de la source : mention a afficher sur le
+   * site, pres de la donnee, avec son lien.
+   *
+   * A ne pas confondre avec la formule editoriale (« selon CoinGecko »), qui
+   * dit au lecteur d'ou vient le chiffre. Celle-ci est une CONDITION D'USAGE :
+   * l'omettre n'est pas une maladresse, c'est une violation de licence.
+   */
+  attributionPublique?: { texte: string; lien: string };
   /** Pourquoi le nom doit accompagner la donnee. Repris dans les messages. */
   raison: string;
 }
@@ -69,6 +78,12 @@ export const SOURCES_DE_MARCHE: readonly SourceDeMarche[] = [
     perimetre: "agrege",
     usage: "citable",
     aliases: ["coingecko", "coin gecko"],
+    // Le plan Demo est gratuit a cette condition, et son guide demande une
+    // mention visible, proche de la donnee, avec un lien vers coingecko.com.
+    attributionPublique: {
+      texte: "Donnees de prix fournies par CoinGecko",
+      lien: "https://www.coingecko.com",
+    },
     raison:
       "un agregat depend de la methodologie de qui le calcule — un autre " +
       "agregateur publie une autre valeur — et les conditions du plan Demo de " +
@@ -194,6 +209,26 @@ export function formuleDAttribution(source: SourceDeMarche): string {
  * conforme a la consigne serait bloque au gate. Un signal n'y figure jamais :
  * il ne se cite pas, donc ne s'attribue pas.
  */
+/**
+ * Attributions de LICENCE dues par un lot de claims, une fois chacune.
+ *
+ * Posees par le code a partir du registre, jamais demandees a un agent : une
+ * consigne de redaction s'oublie, et cet oubli-la romprait les conditions
+ * d'usage de la source.
+ */
+export function attributionsDeLicence(
+  claims: ReadonlyArray<{ sources: ReadonlyArray<{ url: string }> }>,
+): Array<{ texte: string; lien: string }> {
+  const vues = new Map<string, { texte: string; lien: string }>();
+  for (const claim of claims) {
+    for (const s of claim.sources) {
+      const m = sourceDeMarche(s.url);
+      if (m?.attributionPublique !== undefined) vues.set(m.nom, m.attributionPublique);
+    }
+  }
+  return [...vues.values()];
+}
+
 export function attributionsExigees(
   claims: ReadonlyArray<{ id: string; sources: ReadonlyArray<{ url: string }> }>,
 ): string[] {

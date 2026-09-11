@@ -248,11 +248,11 @@ que le protocole interdit.
 2. **Reprise en collecte** — le §9.3 offre deux issues à une claim rejetée :
    la reformulation (implémentée) ou le **retour en collecte** avec une fenêtre
    élargie (pas encore).
-3. **Données de marché : deux décisions de l'éditeur** — la forme exacte de
-   l'attribution CoinGecko sur le site (son guide demande aussi un lien vers
-   coingecko.com), et les conditions d'usage commercial du plan Demo, à relire
-   dans leur texte avant toute monétisation. Voir
-   [docs/sources-marche.md](docs/sources-marche.md).
+3. **Données de marché : les conditions d'usage commercial du plan Demo de
+   CoinGecko**, à relire dans leur texte avant toute monétisation.
+   L'attribution exigée par la licence, elle, est tranchée : tout article qui
+   s'appuie sur CoinGecko l'affiche près de ses chiffres, posée par le code.
+   Voir [docs/sources-marche.md](docs/sources-marche.md).
 4. **Mise en ligne du site** — décider quels articles sont versionnés. `output/`
    est ignoré par Git : une intégration continue qui générerait le site depuis
    le dépôt publierait un site vide.
