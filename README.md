@@ -248,28 +248,46 @@ que le protocole interdit.
 2. **Reprise en collecte** — le §9.3 offre deux issues à une claim rejetée :
    la reformulation (implémentée) ou le **retour en collecte** avec une fenêtre
    élargie (pas encore).
-3. **Le mode `anthropic` n'a jamais tourné** — c'est le seul fichier du projet
-   jamais exécuté contre son API réelle. Un fournisseur gratuit valide tout le
-   reste, mais pas celui-là.
-4. **Relecture humaine** — le pipeline produit un texte publiable au sens du
+3. **Données de marché : deux décisions de l'éditeur** — la forme exacte de
+   l'attribution CoinGecko sur le site (son guide demande aussi un lien vers
+   coingecko.com), et les conditions d'usage commercial du plan Demo, à relire
+   dans leur texte avant toute monétisation. Voir
+   [docs/sources-marche.md](docs/sources-marche.md).
+4. **Mise en ligne du site** — décider quels articles sont versionnés. `output/`
+   est ignoré par Git : une intégration continue qui générerait le site depuis
+   le dépôt publierait un site vide.
+5. **Relecture humaine** — le pipeline produit un texte publiable au sens du
    protocole. Il ne remplace pas un rédacteur en chef humain, et le protocole ne
    prétend pas le contraire. Voir la section Sécurité pour la raison technique.
 
-### Mise sous Git
+**Exclu par décision de l'éditeur : le mode `anthropic`.** C'est le seul client
+jamais exécuté contre son API réelle, et il le restera : ce fournisseur est
+facturé, et `--mode=live`, qui le sélectionnait, est refusé.
 
-Git n'est pas installé sur cette machine, donc le dépôt n'a pas pu être créé.
-`.gitignore` et `.gitattributes` sont prêts. Après installation de Git :
+### Versionnement
+
+Le dépôt est publié sur
+[github.com/Jamess02/media-next-gen](https://github.com/Jamess02/media-next-gen).
+Un hook de pre-commit refuse tout commit qui contiendrait un secret. Il
+s'active une fois par clone :
 
 ```bash
-git init
-git add .
-git commit -m "Pipeline editorial multi-agents conforme au Protocole Editorial v1.0"
+git config core.hooksPath .githooks
 ```
 
-`changelog-editorial.md` **doit** être versionné (§9.6). `audit/journal.jsonl`
-l'est aussi : c'est la trace de preuve. Sont exclus `audit/raw/` (volumineux,
-soumis aux CGU des fournisseurs) et `output/` (artefacts de simulation
-régénérés à chaque exécution).
+Deux contrôles le complètent : `npm run verifier-secrets` inspecte tout
+l'arbre, fichiers suivis et nouveaux ; `npm run auditer-historique` inspecte
+chaque objet de l'historique poussé.
+
+Sont versionnés `articles/`, les articles relus avec leur attestation, et
+`changelog-editorial.md` (§9.6). Sont exclus :
+
+- `.env` : les clefs ;
+- `audit/raw/` : les réponses brutes des sources, non caviardées ;
+- `audit/journal.jsonl` : par décision de l'éditeur du 2026-09-11, le journal
+  reste local, et `npm run dev -- journal` le vérifie toujours ;
+- `output/` et `public/` : les brouillons et le site, régénérés ;
+- `.cache/` : les données de marché en cache et l'état des disjoncteurs.
 
 ---
 
