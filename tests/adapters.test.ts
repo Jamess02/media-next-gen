@@ -326,6 +326,48 @@ describe("catalogue des sources", () => {
     expect(adapters.some((a) => a.id.startsWith("fred:"))).toBe(false);
   });
 
+  it("ecarte Currents sans clef, et dit pourquoi (EP-003)", () => {
+    const { adapters, skipped } = buildSourceCatalogue({});
+    expect(adapters.some((a) => a.id.startsWith("currents:"))).toBe(false);
+    expect(
+      skipped.find((s) => s.id.startsWith("currents:"))?.reason,
+    ).toMatch(/CURRENTS_API_KEY absente/);
+  });
+
+  it("inclut Currents quand la clef est fournie", () => {
+    const { adapters, skipped } = buildSourceCatalogue({
+      CURRENTS_API_KEY: "abc",
+    });
+    expect(adapters.some((a) => a.id.startsWith("currents:"))).toBe(true);
+    expect(skipped.some((s) => s.id.startsWith("currents:"))).toBe(false);
+  });
+
+  it("traite une clef Currents vide comme absente", () => {
+    const { adapters } = buildSourceCatalogue({ CURRENTS_API_KEY: "   " });
+    expect(adapters.some((a) => a.id.startsWith("currents:"))).toBe(false);
+  });
+
+  it("ecarte newsdata sans clef, et dit pourquoi (EP-003)", () => {
+    const { adapters, skipped } = buildSourceCatalogue({});
+    expect(adapters.some((a) => a.id.startsWith("newsdata:"))).toBe(false);
+    expect(
+      skipped.find((s) => s.id.startsWith("newsdata:"))?.reason,
+    ).toMatch(/NEWSDATA_API_KEY absente/);
+  });
+
+  it("inclut newsdata quand la clef est fournie", () => {
+    const { adapters, skipped } = buildSourceCatalogue({
+      NEWSDATA_API_KEY: "pub_abc",
+    });
+    expect(adapters.some((a) => a.id.startsWith("newsdata:"))).toBe(true);
+    expect(skipped.some((s) => s.id.startsWith("newsdata:"))).toBe(false);
+  });
+
+  it("traite une clef newsdata vide comme absente", () => {
+    const { adapters } = buildSourceCatalogue({ NEWSDATA_API_KEY: "   " });
+    expect(adapters.some((a) => a.id.startsWith("newsdata:"))).toBe(false);
+  });
+
   it("documente les sources ecartees pour raisons externes", () => {
     const { skipped } = buildSourceCatalogue({});
     const ids = skipped.map((s) => s.id);

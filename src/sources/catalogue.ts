@@ -16,6 +16,8 @@ import {
   interestCaveat,
   type DeclaredInterest,
 } from "../protocol/interests.js";
+import { currentsAdapter } from "./currents.js";
+import { newsdataAdapter } from "./newsdata.js";
 import { eurostatAdapter } from "./eurostat.js";
 import { ofacAdapter } from "./ofac.js";
 import { rssAdapter } from "./rss.js";
@@ -211,6 +213,53 @@ export function buildSourceCatalogue(
         "FRED_API_KEY absente de l'environnement : le taux des fonds federaux " +
         "ET le bilan de la Reserve federale sont indisponibles. Clef gratuite " +
         "sur https://fredaccount.stlouisfed.org/apikeys — a placer dans .env.",
+    });
+  }
+
+  // --- Presse agregee, clef requise --------------------------------------
+  // Currents n'est PAS une source primaire : il rend l'URL de l'editeur, et
+  // c'est elle qui est citee. Le tier suit donc le domaine de cet editeur, pas
+  // Currents — un domaine inconnu du registre retombe en tier 3.
+  const currentsKey = env["CURRENTS_API_KEY"];
+  if (currentsKey !== undefined && currentsKey.trim().length > 0) {
+    adapters.push(
+      currentsAdapter({
+        apiKey: currentsKey,
+        language: "fr",
+        type: "presse",
+        caveat: PRESSE_CAVEAT,
+      }),
+    );
+  } else {
+    skipped.push({
+      id: "currents:search",
+      reason:
+        "CURRENTS_API_KEY absente de l'environnement : la presse agregee est " +
+        "indisponible. Clef gratuite sur https://currentsapi.services — a " +
+        "placer dans .env, jamais dans le code.",
+    });
+  }
+
+  // Second agregateur. Currents et newsdata ne moissonnent pas les memes
+  // titres : deux reprises independantes d'un meme fait donnent au §5.2 de
+  // quoi comparer, la ou un seul agregateur imposerait son perimetre.
+  const newsdataKey = env["NEWSDATA_API_KEY"];
+  if (newsdataKey !== undefined && newsdataKey.trim().length > 0) {
+    adapters.push(
+      newsdataAdapter({
+        apiKey: newsdataKey,
+        language: "fr",
+        type: "presse",
+        caveat: PRESSE_CAVEAT,
+      }),
+    );
+  } else {
+    skipped.push({
+      id: "newsdata:latest",
+      reason:
+        "NEWSDATA_API_KEY absente de l'environnement : le second agregateur de " +
+        "presse est indisponible. Clef gratuite sur https://newsdata.io — a " +
+        "placer dans .env, jamais dans le code.",
     });
   }
 
