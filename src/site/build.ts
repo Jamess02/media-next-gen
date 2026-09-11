@@ -30,11 +30,13 @@ import {
   type SurfaceEntry,
 } from "./agent-surface.js";
 import { renderFeed, renderRobots, renderSitemap } from "./feed.js";
+import { llmsTxt, statusSurface } from "./tracabilite.js";
 import {
   documentPage,
   articlePage,
   indexPage,
   notFoundPage,
+  siteUrl,
 } from "./templates.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -187,6 +189,11 @@ export async function buildSite(
   // Flux et fichiers d'indexation : ce qui distingue un media d'un dossier de
   // pages. Ils portent des URLs ABSOLUES — un lecteur de flux ne sait pas d'ou
   // vient le document qu'il lit.
+  // Surfaces de tracabilite : point d entree machine et fraicheur declaree.
+  // Ecrites AVANT les empreintes, pour qu integrity.json les couvre.
+  await ecrire("llms.txt", llmsTxt(articles, siteUrl()));
+  await ecrire("status.json", JSON.stringify(statusSurface(articles, new Date()), null, 2));
+
   await ecrire("feed.xml", renderFeed(articles));
   await ecrire("sitemap.xml", renderSitemap(articles));
   await ecrire("robots.txt", renderRobots());

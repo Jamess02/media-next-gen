@@ -22,6 +22,7 @@ import { formatFigure, rankedFigures } from "../protocol/figures.js";
 import { interestsForUrls } from "../protocol/interests.js";
 import type { Article, Claim } from "../protocol/schema.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
+import { blocDeCitation } from "./tracabilite.js";
 import { STYLES } from "./styles.js";
 
 export const SITE_NAME = "Media Next Gen";
@@ -445,6 +446,7 @@ export function articlePage(
   ${renderReview(review)}
   ${blocEcartees}
   ${changelog}
+  ${blocDeCitation(article, siteUrl())}
 </article>`;
 
   return page({
