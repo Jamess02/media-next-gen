@@ -1,0 +1,69 @@
+{
+  "id": "article-8ca3d8d4-9e6f-46f2-a669-902d2135afd8",
+  "title": "Séismes de magnitude 6 ou plus observés en septembre 2026 : trois événements majeurs",
+  "published_at": "2026-09-09T12:22:06.118Z",
+  "revised_at": null,
+  "authors_agents": [
+    "veilleur",
+    "analyste",
+    "fact-checker",
+    "redacteur",
+    "redacteur-en-chef",
+    "editeur"
+  ],
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "Un séisme de magnitude 6,3 s'est produit à 84 km SSO de Nikolski, Alaska, le 3 septembre 2026 à 11 h 17 UTC, à une profondeur de 35 km.",
+      "type": "fait",
+      "evidence_level": 3,
+      "sources": [
+        {
+          "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000tdvt",
+          "tier": 1,
+          "date_observed": "2026-09-09T12:21:35.880Z",
+          "date_published": "2026-09-03T11:17:24.056Z"
+        }
+      ]
+    },
+    {
+      "id": "claim-2",
+      "text": "Un séisme de magnitude 6,2 a frappé la région des îles Sandwich du Sud le 2 septembre 2026 à 23 h 46 UTC, à une profondeur de 125,9 km.",
+      "type": "fait",
+      "evidence_level": 3,
+      "sources": [
+        {
+          "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000tdrv",
+          "tier": 1,
+          "date_observed": "2026-09-09T12:21:35.880Z",
+          "date_published": "2026-09-02T23:46:57.617Z"
+        }
+      ]
+    },
+    {
+      "id": "claim-3",
+      "text": "Un séisme de magnitude 6,0 s'est produit à 145 km au nord de Caluula, Somalie, le 27 août 2026 à 21 h 07 UTC, à une profondeur de 10 km.",
+      "type": "fait",
+      "evidence_level": 3,
+      "sources": [
+        {
+          "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000tcf3",
+          "tier": 1,
+          "date_observed": "2026-09-09T12:21:35.880Z",
+          "date_published": "2026-08-27T21:07:38.352Z"
+        }
+      ]
+    }
+  ],
+  "body": "En septembre 2026, le réseau sismologique mondial a enregistré trois séismes de magnitude égale ou supérieure à 6, tous situés dans des zones géographiques très différentes. Ces événements, publiés par l’USGS, illustrent la persistance de l’activité tectonique dans le Pacifique et l’océan Indien, même si aucune information supplémentaire n’est disponible sur leurs impacts locaux.\n\nLe premier séisme, référencé comme [[claim-1]], a atteint une magnitude de 6,3 le 3 septembre 2026 à 11 h 17 UTC, à 84 km au sud‑sud‑ouest de Nikolski, Alaska, avec une profondeur de 35 km. L’information provient d’une solution révisée par un sismologue et publiée par l’USGS le 3 septembre 2026. Le système d’alerte PAGER a attribué le niveau « green », indiquant qu’aucune menace de tsunami n’est attendue. La source ne précise pas les dommages éventuels, les ressentis de la population locale ni l’éventuelle séquence de répliques.\n\nLe deuxième séisme, identifié comme [[claim-2]], a eu une magnitude de 6,2 le 2 septembre 2026 à 23 h 46 UTC, au large des îles Sandwich du Sud, à une profondeur de 125,9 km. Publié par l’USGS le même jour, il bénéficie également d’une alerte PAGER verte. Aucun détail n’est fourni sur les effets sismiques ressentis sur les îles habitée(s) ni sur d’éventuels déclenchements de tsunamis.\n\nLe troisième événement, désigné [[claim-3]], s’est produit le 27 août 2026 à 21 h 07 UTC, à 145 km au nord de Caluula, Somalie, avec une magnitude de 6,0 et une profondeur de 10 km. L’USGS a publié ce résultat le 27 août 2026, également revu par un sismologue et classé PAGER vert. Là encore, la source ne mentionne ni dommages, ni réponses humanitaires, ni suivi des répliques.\n\n**Tous les événements proviennent de l’USGS (source tier 1) et ont été publiés dans les deux dernières semaines, respectant la fenêtre de fraîcheur indiquée.**\n\nCes trois séismes montrent que des ruptures significatives peuvent se produire simultanément dans des régions éloignées, mais les données publiques ne permettent pas d’évaluer leurs conséquences humaines ou économiques. La couverture reste limitée aux paramètres géophysiques de base (magnitude, profondeur, localisation) et ne fournit aucune indication sur les dommages, les populations exposées ou les éventuelles répliques, ce qui laisse une incertitude importante quant à l’impact réel de chaque événement.\n\n**Ce qui reste ouvert** : la disponibilité de rapports détaillés sur les effets locaux, les éventuelles répliques et les réponses des autorités, ainsi que l’évolution de l’activité sismique dans ces zones au cours des semaines à venir.",
+  "editorial_notes": {
+    "uncertainty_flags": [
+      "Tous les événements proviennent de l’USGS (source tier 1) et ont été publiés dans les deux dernières semaines, respectant la fenêtre de fraîcheur indiquée.",
+      "La claim \"claim-1\" (fait) cite 2 valeur(s) absente(s) des sources retenues : 11, 17. Verifier que les sources citees soutiennent bien ces chiffres — le §2 exige qu'une source soutienne precisement l'affirmation.",
+      "La claim \"claim-2\" (fait) cite 2 valeur(s) absente(s) des sources retenues : 23, 46. Verifier que les sources citees soutiennent bien ces chiffres — le §2 exige qu'une source soutienne precisement l'affirmation.",
+      "La claim \"claim-3\" (fait) cite 2 valeur(s) absente(s) des sources retenues : 21, 7. Verifier que les sources citees soutiennent bien ces chiffres — le §2 exige qu'une source soutienne precisement l'affirmation."
+    ],
+    "excluded_claims": []
+  },
+  "changelog": []
+}

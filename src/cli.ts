@@ -14,10 +14,14 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PublicationRefused } from "./agents/editeur.js";
+import {
+  enquetesDepuisArticles,
+  type Investigation,
+} from "./planification/investigation.js";
 import { AuditLog, verifyJournal } from "./audit/audit-log.js";
 import { verifyChangelog } from "./editorial/changelog.js";
 import { validateArticle } from "./editorial/validation.js";
@@ -122,6 +126,7 @@ function parseArgs(argv: readonly string[]): Command {
     else if (arg === "--mode=mock") provider = "mock";
     else if (arg === "--real-sources") realSources = true;
     else if (arg === "--prospectif") mode = "prospectif";
+    else if (arg === "--enquete") mode = "enquete";
     else if (arg === "--providers") return { kind: "list-providers" };
     else if (arg.startsWith("--type=")) type = arg.slice("--type=".length);
     else positional.push(arg);
@@ -277,6 +282,10 @@ async function publish(command: PublishCommand): Promise<void> {
     ctx: { llm, audit },
     adapters,
     mode: command.mode,
+    // Historique reel, relu depuis les brouillons deja produits. Tenir un
+    // fichier d etat separe le ferait diverger du contenu du dossier ; les
+    // articles eux-memes portent leur mode et leur date, ce qui suffit.
+    investigations: await enquetesPassees(),
     onStage: (stage: PipelineStage, detail: string) =>
       console.log(`  [${stage.padEnd(13)}] ${detail}`),
   });
@@ -371,6 +380,35 @@ async function validateCommand(command: {
   console.log("");
   console.log("Prochaine etape : `npm run site`, puis commiter articles/.");
   console.log("Toute modification ulterieure de l'article invalidera la relecture.");
+}
+
+/**
+ * Enquetes deja produites, relues depuis les brouillons de `output/`.
+ *
+ * Source de verite : le dossier lui-meme. Un journal tenu a part divergerait
+ * du reel des la premiere suppression manuelle, et la cadence reposerait sur
+ * une comptabilite fausse.
+ */
+async function enquetesPassees(): Promise<readonly Investigation[]> {
+  const dossier = "output";
+  if (!existsSync(dossier)) return [];
+  const articles: Array<{ id: string; title?: string; mode?: string; published_at: string }> = [];
+  for (const f of (await readdir(dossier)).filter((x) => x.endsWith(".json"))) {
+    try {
+      const a = JSON.parse(await readFile(join(dossier, f), "utf8")) as Record<string, unknown>;
+      if (typeof a["id"] === "string" && typeof a["published_at"] === "string") {
+        articles.push({
+          id: a["id"],
+          published_at: a["published_at"],
+          ...(typeof a["title"] === "string" ? { title: a["title"] } : {}),
+          ...(typeof a["mode"] === "string" ? { mode: a["mode"] } : {}),
+        });
+      }
+    } catch {
+      /* brouillon illisible : ignore, il ne compte pas comme enquete */
+    }
+  }
+  return enquetesDepuisArticles(articles);
 }
 
 async function buildSiteCommand(drafts: boolean): Promise<void> {

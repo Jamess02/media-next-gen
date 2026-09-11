@@ -87,6 +87,9 @@ export const WEAK_TIER_DISCLAIMER =
 
 export const AGENT_ROLES = [
   "veilleur",
+  // Format long (§5.3). Distinct du Redacteur : il ne traite pas les memes
+  // sujets, ne suit pas la meme structure et ne publie pas au meme rythme.
+  "investigateur",
   "analyste",
   "redacteur",
   "fact-checker",
@@ -145,7 +148,7 @@ export const MAX_VERBATIM_CLAIM_SHARE = 0.55;
  * texte, declaration en tete d'article, et l'interdit EP-007 inchange — un
  * scenario decrit ce qui pourrait advenir, jamais ce qu'il faudrait faire.
  */
-export const ARTICLE_MODES = ["constat", "prospectif"] as const;
+export const ARTICLE_MODES = ["constat", "prospectif", "enquete"] as const;
 export type ArticleMode = (typeof ARTICLE_MODES)[number];
 
 export const PROSPECTIVE_DISCLAIMER =

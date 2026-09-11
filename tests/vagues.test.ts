@@ -49,7 +49,23 @@ describe("composition d'une vague", () => {
     // echouerait un jour en production.
     for (let i = 0; i < 50; i += 1) {
       const modes = new Set(composerVague(i).map((s) => s.mode));
-      for (const attendu of ARTICLE_MODES) expect(modes).toContain(attendu);
+      for (const attendu of ["constat", "prospectif"] as const) {
+        expect(modes).toContain(attendu);
+      }
+    }
+  });
+
+  it("n'y met JAMAIS d'enquete : ce format a sa propre cadence", () => {
+    // Le test precedent iterait sur ARTICLE_MODES comme raccourci pour « les
+    // deux types ». L'ajout du mode `enquete` l'a fait echouer — a juste titre,
+    // mais pour une raison trompeuse.
+    //
+    // L'enquete longue est volontairement RARE : une par semaine, contre
+    // quarante-deux brouillons produits par les vagues sur la meme duree. La
+    // faire entrer dans une vague annulerait cette cadence, et le format long
+    // ne se distinguerait plus que par son nom.
+    for (let i = 0; i < 50; i += 1) {
+      expect(composerVague(i).map((s) => s.mode)).not.toContain("enquete");
     }
   });
 

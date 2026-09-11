@@ -47,8 +47,29 @@ import {
   type Violation,
 } from "./protocol/rules.js";
 import { ArticleSchema, type Article } from "./protocol/schema.js";
+import {
+  InvestigateurChapitre,
+  InvestigateurPlan,
+  completerChapitres,
+  rendreCorpsEnquete,
+} from "./agents/investigateur.js";
+import {
+  enqueteAutorisee,
+  evaluerSujet,
+  type Investigation,
+} from "./planification/investigation.js";
 import { SourceGateway } from "./sources/gateway.js";
 import type { SourceAdapter } from "./sources/types.js";
+
+/**
+ * Cible de longueur pour une enquete, repartie entre ses chapitres.
+ *
+ * Visee au-dessus du plancher de 1500 mots du gate, et non dessus : viser la
+ * limite exacte revient a echouer une fois sur deux. La mesure sur trois
+ * executions reelles donnait 496, 640 puis 990 mots en UNE passe — la marge
+ * n'est pas du confort, c'est ce qui rend le plancher atteignable.
+ */
+const MOTS_CIBLE_ENQUETE = 2200;
 
 export type PipelineStage =
   | "collecte"
@@ -88,6 +109,14 @@ export interface PipelineOptions {
    * autour de scenarios conditionnes.
    */
   mode?: ArticleMode;
+  /**
+   * Enquetes deja ouvertes, pour le controle de CADENCE du mode `enquete`.
+   *
+   * Injecte plutot que lu depuis le disque : le pipeline reste testable sans
+   * etat persistant, et l appelant (CLI, vague, studio) reste maitre de la
+   * source de verite.
+   */
+  investigations?: readonly Investigation[];
   /** Journal de progression. Injecte pour rester testable. */
   onStage?: (stage: PipelineStage, detail: string) => void;
 }
@@ -98,6 +127,8 @@ export class EditorialPipeline {
   private readonly analyste: Analyste;
   private readonly factChecker: FactChecker;
   private readonly redacteur: Redacteur;
+  private readonly investigateurPlan: InvestigateurPlan;
+  private readonly investigateurChapitre: InvestigateurChapitre;
   private readonly redacteurEnChef: RedacteurEnChef;
   private readonly editeur: Editeur;
   private readonly since: string;
@@ -111,6 +142,8 @@ export class EditorialPipeline {
     this.analyste = new Analyste(ctx);
     this.factChecker = new FactChecker(ctx);
     this.redacteur = new Redacteur(ctx);
+    this.investigateurPlan = new InvestigateurPlan(ctx);
+    this.investigateurChapitre = new InvestigateurChapitre(ctx);
     this.redacteurEnChef = new RedacteurEnChef(ctx);
     this.editeur = options.editeur ?? new Editeur();
     this.since =
@@ -121,6 +154,31 @@ export class EditorialPipeline {
   }
 
   async run(topic: string): Promise<PipelineResult> {
+    /* --- Cadence du format long, AVANT tout le reste --------------------- */
+    //
+    // Le controle est place ICI, avant meme la collecte, et c'est le point
+    // entier du quota. Verifie apres la redaction, il ne limiterait rien : le
+    // texte existerait deja, et un texte ecrit finit par etre publie. Verifie
+    // avant, il empeche l'enquete d'exister.
+    //
+    // C'est la difference entre une cadence tenue et une cadence affichee.
+    if (this.mode === "enquete") {
+      const cadence = enqueteAutorisee(
+        this.options.investigations ?? [],
+        new Date(),
+      );
+      if (!cadence.autorisee) {
+        return halt("collecte", `cadence : ${cadence.motif}`, [
+          cadence.prochaineOuverture === undefined
+            ? "aucune date de reouverture calculable"
+            : `prochaine ouverture possible : ${cadence.prochaineOuverture}`,
+          "Le format long se defend par sa rarete. Les sujets courants " +
+            "continuent d'etre traites par les vagues.",
+        ]);
+      }
+      this.onStage("collecte", `enquete autorisee — ${cadence.motif}`);
+    }
+
     /* --- §5.1 Collecte --------------------------------------------------- */
     this.onStage("collecte", `interrogation de ${this.options.adapters.length} source(s)`);
     const collection = await this.gateway.collect(
@@ -293,7 +351,130 @@ export class EditorialPipeline {
       );
     }
 
-    const draft = await this.redacteur.run({
+    /**
+     * Brouillon issu du format long, quand il s'applique.
+     *
+     * Meme forme que la sortie du Redacteur — titre, corps, drapeaux — pour
+     * que la suite du pipeline n'ait pas a savoir quel agent a ecrit.
+     */
+    let enqueteRedigee:
+      | { title: string; body: string; uncertainty_flags: string[] }
+      | undefined;
+
+    /* --- Format long : routage, puis redaction par l'Investigateur ------- */
+    //
+    // Le routage est evalue sur la matiere REELLEMENT collectee, pas sur
+    // l'intention de depart. Un sujet peut sembler meriter une enquete et ne
+    // ramener que deux documents d'un meme emetteur : c'est a ce moment-la,
+    // et pas avant, qu'on peut le savoir.
+    if (this.mode === "enquete") {
+      const emetteurs = new Set(retained.map((e) => e.source));
+      const routage = evaluerSujet({
+        sujet: topic,
+        sourcesDisponibles: retained.length,
+        emetteursDistincts: emetteurs.size,
+        // Une contradiction reperee par le fact-checker est le signal le plus
+        // solide dont on dispose : elle a ete constatee, pas supposee.
+        sourcesEnDesaccord: verdicts.conflicts_found.length > 0,
+        // Deux claims ou plus a relier : il y a un enchainement a expliquer.
+        mecanismeAExpliquer: gate.accepted.length >= 2,
+        // Des reserves de publication signalent ce que les sources ne disent
+        // pas — c'est la definition operatoire d'une zone d'ombre.
+        zonesDombre: analysis.publication_caveats.length > 0,
+      });
+
+      if (routage.route !== "investigateur") {
+        return halt("redaction", `routage : ${routage.motif}`, [
+          `sujet : ${topic}`,
+          `${retained.length} observation(s), ${emetteurs.size} emetteur(s) distinct(s)`,
+          "Ce sujet releve de la production courante, pas du format long.",
+        ]);
+      }
+
+      this.onStage("redaction", `enquete — criteres : ${routage.criteres.join(", ")}`);
+
+      const materielEnquete = retained
+        .filter((e) => citedUrls.has(e.url))
+        .map((e) => `${e.source} — ${e.resume}`);
+
+      const communEnquete = {
+        topic,
+        claims: gate.accepted,
+        criteres: routage.criteres,
+        narrativeVsData: analysis.narrative_vs_data,
+        publicationCaveats: analysis.publication_caveats,
+        requiredDisclaimer: allSourcesWeak ? WEAK_TIER_DISCLAIMER : null,
+        requiredDisclosures: interests.map(boldDisclosure),
+        sourceMaterial: materielEnquete,
+      };
+
+      /* --- Passe 1 : decider et planifier ------------------------------ */
+      const plan = await this.investigateurPlan.run(communEnquete);
+
+      // RENONCER N EST PAS UNE PANNE. Le §5.3 demande que l agent puisse
+      // signaler une piste trop mince plutot que de forcer un article ; un
+      // arret motive est donc une issue normale, au meme titre qu un refus du
+      // gate. Le motif remonte tel quel : c est lui qui rend l abandon
+      // relisable.
+      if (!plan.publiable) {
+        return halt(
+          "redaction",
+          "l Investigateur a renonce : la piste n est pas assez solide pour etre publiee",
+          [
+            plan.motif_de_refus ?? "motif non renseigne",
+            "Une piste abandonnee ne coute rien ; une enquete batie sur du " +
+              "vide coute la credibilite de toutes les autres.",
+          ],
+        );
+      }
+
+      // Les chapitres OBLIGATOIRES sont garantis ici, pas demandes au modele.
+      // Lui rappeler de ne pas oublier le contradictoire, c est esperer ;
+      // l ajouter quand il manque, c est l obtenir.
+      const chapitres = completerChapitres(plan.chapitres);
+      const motsVises = Math.ceil(MOTS_CIBLE_ENQUETE / chapitres.length);
+      this.onStage(
+        "redaction",
+        `plan retenu : ${chapitres.length} chapitre(s), ~${motsVises} mots chacun`,
+      );
+
+      /* --- Passe 2 : un appel PAR CHAPITRE ----------------------------- */
+      // C est ce decoupage qui rend le travail reellement plus long, la ou le
+      // quota ne faisait qu en espacer la production. Sequentiel a dessein :
+      // chaque chapitre connait ceux deja ecrits et evite de les redire.
+      const ecrits: Array<{ titre: string; corps: string }> = [];
+      for (const [rang, chapitre] of chapitres.entries()) {
+        const morceau = await this.investigateurChapitre.run({
+          ...communEnquete,
+          chapitre,
+          dejaEcrits: ecrits.map((e) => e.titre),
+          motsVises,
+        });
+        ecrits.push({ titre: chapitre.titre, corps: morceau.corps });
+        this.onStage(
+          "redaction",
+          `chapitre ${rang + 1}/${chapitres.length} — "${chapitre.titre}" ` +
+            `(${morceau.corps.split(/s+/).filter(Boolean).length} mots)`,
+        );
+      }
+
+      enqueteRedigee = {
+        title: plan.title ?? "",
+        body: rendreCorpsEnquete({
+          resume_en_bref: plan.resume_en_bref ?? "",
+          chapitres: ecrits,
+          glossaire: plan.glossaire,
+          bibliographie: plan.bibliographie,
+        }),
+        uncertainty_flags: plan.uncertainty_flags,
+      };
+    }
+
+    // Le reste du pipeline est COMMUN aux deux formats : ancrage des chiffres,
+    // drapeaux d'incertitude, assemblage du contrat §7, gate, publication.
+    // Faire diverger ces etapes selon le format aurait cree deux chemins de
+    // publication a maintenir, dont un seul serait reellement exerce.
+    const draft = enqueteRedigee ?? (await this.redacteur.run({
       topic,
       claims: gate.accepted,
       narrativeVsData: analysis.narrative_vs_data,
@@ -312,7 +493,7 @@ export class EditorialPipeline {
           date_published: e.date_published,
           resume: e.resume,
         })),
-    });
+    }));
     this.onStage("redaction", `"${draft.title}"`);
 
     /* --- Assemblage du contrat §7 ---------------------------------------- */
@@ -387,16 +568,23 @@ export class EditorialPipeline {
       title: draft.title,
       published_at: now,
       revised_at: null,
+      // L'agent redacteur figure selon le format reellement emprunte : une
+      // enquete signee « redacteur » attribuerait le texte a un agent qui ne
+      // l'a pas ecrit, et le §7 fait de cette liste une donnee, pas un ornement.
       authors_agents: [
         "veilleur",
         "analyste",
         "fact-checker",
-        "redacteur",
+        this.mode === "enquete" ? "investigateur" : "redacteur",
         "redacteur-en-chef",
         "editeur",
       ],
       claims: gate.accepted,
       body: draft.body,
+      // Le format est porte par le CONTRAT, pas deduit du texte. C'est lui qui
+      // declenche les regles de structure du format long (§5.3) : les deduire
+      // de la presence des chapitres rendrait le controle circulaire.
+      mode: this.mode,
       editorial_notes: {
         uncertainty_flags: dedupe(uncertaintyFlags),
         // §7 : "claims rejetees et pourquoi". Uniquement des rejets.

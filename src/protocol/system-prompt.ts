@@ -36,6 +36,9 @@ const ROLE_CLAUSE: Record<AgentRole, string> = {
   analyste: "§5.2",
   "fact-checker": "§5.2 et §9.3",
   redacteur: "§5.3",
+  // Meme clause que le Redacteur : l enquete reste de la redaction. Ce qui
+  // change est le format et la cadence, pas le regime de preuve.
+  investigateur: "§5.3",
   "redacteur-en-chef": "§5.4",
   editeur: "§5.4",
 };

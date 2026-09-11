@@ -16,6 +16,7 @@
 
 import { z } from "zod";
 import {
+  ARTICLE_MODES,
   CLAIM_TYPES,
   CHANGELOG_TYPES,
   EVIDENCE_LEVELS,
@@ -155,6 +156,20 @@ export const ArticleSchema = z
     authors_agents: z.array(z.string().min(1)).min(1),
     claims: z.array(ClaimSchema),
     body: z.string(),
+    /**
+     * Format de l'article. OPTIONNEL, et il doit le rester.
+     *
+     * Les articles produits avant l'introduction de ce champ n'en portent pas,
+     * et le schema est `.strict()` : le rendre obligatoire invaliderait d'un
+     * coup tous les brouillons existants, ainsi que les attestations de
+     * relecture dont l'empreinte couvre l'article entier.
+     *
+     * Absent vaut `constat` — le format par defaut du pipeline. Seul
+     * `enquete` declenche les regles de structure du format long, ce qui evite
+     * de les appliquer retroactivement a des textes qui ne les promettaient
+     * pas.
+     */
+    mode: z.enum(ARTICLE_MODES).optional(),
     editorial_notes: EditorialNotesSchema,
     changelog: z.array(ChangelogEntrySchema),
   })
