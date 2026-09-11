@@ -120,33 +120,40 @@ export const FREE_PROVIDERS: Record<string, ProviderSpec> = {
     // le `llama-3.3-70b-versatile` de Groq, disparu en cours de route et
     // decouvert par un HTTP 400 opaque.
     //
-    // Choix MESURE le 2026-09-09, sur le meme schema pour tous :
+    // Choix MESURE le 2026-09-09 par COMPARAISON A SUJET CONSTANT : le meme
+    // article (inflation zone euro, Eurostat) produit par chaque modele, puis
+    // compare sur le nombre d avertissements du gate, la duree et la sortie.
     //
-    //   gemini-3.8-flash       HTTP 503 — sature
-    //   gemini-3.7-flash       200, 1,4 s, schema respecte   <- retenu
-    //   gemini-flash-latest    200, 1,5 s, schema respecte
-    //   gemini-3.1-flash-lite  200, 2,7 s, schema respecte
-    //   gemini-3.5-flash       200, 12,5 s, schema NON respecte
-    //   gemini-2.5-flash       HTTP 404 — disparu du catalogue
+    //   gemini-3.5-flash-lite  publie, 17 s, 460 mots, tableau, 0 avert. <- retenu
+    //   gemini-3.6-flash       publie, 91 s, 583 mots, tableau, 2 avert.
+    //   gemini-flash-latest    HTTP 503 — sature ce jour-la
+    //   gemini-3.7-flash       quota journalier epuise (voir notes)
     //
-    // On prefere un modele qui repond a un modele qui impressionne. Et le 404
-    // de `gemini-2.5-flash`, encore cite par la documentation officielle,
-    // rappelle que ce champ vieillit tout seul.
-    defaultModel: "gemini-3.7-flash",
+    // `gemini-3.6-flash` ecrit plus riche mais produit des phrases reduites a
+    // une reference : "En effet, [[claim-1]]." — seul modele a le faire, sur
+    // 14 articles. Le lite est plus rapide, plus propre, et sort le tableau.
+    defaultModel: "gemini-3.5-flash-lite",
     envKey: "GEMINI_API_KEY",
     signup: "https://aistudio.google.com/apikey",
-    // MESURE du 2026-09-09, sur le schema reel du Veilleur envoye a l'endpoint
+    // MESURE du 2026-09-09, sur le schema reel du Veilleur envoye a l endpoint
     // compatible OpenAI : `gemini-3.5-flash` et `gemini-3-flash-preview`
     // rendent tous deux une sortie conforme.
     enforcesSchema: true,
     notes:
       "Palier gratuit sans carte bancaire. APPLIQUE `response_format` " +
-      "(verifie le 2026-09-09 sur le schema du Veilleur), ce qui en fait le " +
-      "seul fournisseur gratuit a la fois capable et non contraint par un " +
-      "plafond de tokens par minute serre — la ou Groq bute a 8000 TPM des " +
-      "13 sources. Modeles texte vus par une clef gratuite : gemini-3.8-flash, " +
-      "3.7, 3.6, 3.5-flash et leurs variantes lite. `gemini-3.8-flash` peut " +
-      "rendre HTTP 503 en periode de forte demande.",
+      "(verifie le 2026-09-09 sur le schema du Veilleur). Pas de plafond de " +
+      "tokens par minute serre — la ou Groq bute a 8000 TPM des 13 sources. " +
+      "QUOTA JOURNALIER, par MODELE (dimension `model` du quota " +
+      "`generate_content_free_tier_requests`) — et il DIFFERE selon le " +
+      "modele, ne pas generaliser : 20 requetes/jour MESUREES sur " +
+      "`gemini-3.7-flash` (soit ~4 articles/jour a 5 appels par article), " +
+      "mais les variantes `flash-lite` ont encaisse plus de 45 requetes dans " +
+      "la meme journee sans le moindre 429 — leur plafond est nettement plus " +
+      "haut et n a PAS ete mesure. Ne pas conclure qu une cadence est hors de " +
+      "portee sans l avoir constatee sur le modele reellement utilise. " +
+      "Modeles texte vus par une clef gratuite : gemini-3.8-flash, " +
+      "3.7, 3.6, 3.5-flash et leurs variantes lite. `gemini-3.8-flash` et " +
+      "`gemini-flash-latest` peuvent rendre HTTP 503 en forte demande.",
   },
   mistral: {
     baseUrl: "https://api.mistral.ai/v1",
