@@ -50,12 +50,25 @@ describe("exclusions critiques du .gitignore", () => {
     expect(lignes).toContain("public/");
   });
 
-  it("n'exclut PAS le journal d'audit, qui est la trace de preuve", async () => {
-    // Symetrique et tout aussi important : exclure le journal supprimerait la
-    // preuve au lieu de proteger un secret.
+  it("exclut le journal d'audit, par DECISION de l'editeur, et le dit", async () => {
+    // Ce test affirmait l'inverse jusqu'au 2026-09-11 : « exclure le journal
+    // supprimerait la preuve ». L'editeur a tranche autrement — le journal
+    // avait ete embarque sans son accord. La decision est la sienne ; ce test
+    // verrouille desormais qu'elle est APPLIQUEE et DOCUMENTEE, pour qu'elle
+    // ne se defasse pas par un retour silencieux du fichier.
+    const lignes = await gitignore();
+    expect(lignes).toContain("audit/journal.jsonl");
+    // La raison doit voyager avec la ligne : une exclusion sans motif se
+    // retire sans hesiter, et une preuve retiree sans le savoir ne se voit pas.
+    const brut = await readFile(".gitignore", "utf8");
+    expect(brut).toMatch(/decision de l'editeur/i);
+  });
+
+  it("n'exclut PAS le dossier audit/ en bloc", async () => {
+    // Ce qui reste vrai de l'ancien test : une exclusion en bloc masquerait
+    // tout ce qui y serait ajoute demain, sans qu'on l'ait decide.
     const lignes = await gitignore();
     expect(lignes).not.toContain("audit/");
-    expect(lignes).not.toContain("audit/journal.jsonl");
   });
 
   it("n'exclut PAS les articles relus ni le changelog editorial (§9.6)", async () => {

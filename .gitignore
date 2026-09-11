@@ -11,9 +11,22 @@ dist/
 # public publierait ces secrets, definitivement : l'historique Git les conserve
 # meme apres suppression du fichier.
 #
-# Le journal .jsonl, lui, est VERSIONNE : c'est la trace de preuve, et ses URLs
-# sont caviardees de leurs secrets par src/audit/redaction.ts.
 audit/raw/
+
+# Le journal .jsonl n'est PLUS versionne, par decision de l'editeur du
+# 2026-09-11. Il l'etait jusque-la comme trace de preuve publique ; il avait ete
+# embarque par un `git add -A` sans son accord.
+#
+# Il ne contenait aucun secret — ses URLs sont caviardees par
+# src/audit/redaction.ts — et il reste tenu en LOCAL, chaine d'empreintes
+# comprise : `npm run dev -- journal` le verifie toujours.
+#
+# CE QUE CE CHOIX COUTE. Le verificateur l'annonce lui-meme : une reecriture
+# complete du journal, empreintes recalculees, n'est pas detectable sans ancre
+# externe. La copie versionnee jouait en partie ce role. Pour la retrouver sans
+# republier le journal : publier ailleurs la seule empreinte de sa derniere
+# entree.
+audit/journal.jsonl
 
 # Sortie du pipeline : espace de TRAVAIL. Un article y est un brouillon, que
 # personne n'a encore relu.
