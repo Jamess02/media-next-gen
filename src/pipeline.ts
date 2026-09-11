@@ -448,6 +448,8 @@ export class EditorialPipeline {
         publicationCaveats: analysis.publication_caveats,
         requiredDisclaimer: allSourcesWeak ? WEAK_TIER_DISCLAIMER : null,
         requiredDisclosures: interests.map(boldDisclosure),
+        // Meme source que pour le Redacteur : le registre que le gate relira.
+        requiredAttributions: attributionsExigees(gate.accepted),
         sourceMaterial: materielEnquete,
       };
 

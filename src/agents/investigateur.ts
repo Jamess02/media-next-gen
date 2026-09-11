@@ -299,6 +299,12 @@ export interface InvestigateurInput {
   requiredDisclaimer: string | null;
   /** §4 / EP-002 — divulgations d'interet a reproduire VERBATIM, en gras. */
   requiredDisclosures: readonly string[];
+  /**
+   * « sur Binance », « selon CoinGecko » : produites par
+   * `protocol/sources-de-marche.ts`, que le gate relit pour verifier chaque
+   * paragraphe. Optionnel : une enquete sans donnee de marche n'en porte aucune.
+   */
+  requiredAttributions?: readonly string[];
 }
 
 export interface ChapitreInput extends InvestigateurInput {
@@ -326,6 +332,13 @@ suspense, pas d'adjectif qui fasse le travail de la preuve.
 
 Tu ne peux ni creer, ni modifier, ni requalifier une claim : tu recois des
 affirmations deja validees et tu ecris AUTOUR d'elles.
+
+ATTRIBUTIONS DES DONNEES DE MARCHE (\`attributions_obligatoires\`). Chaque
+entree donne une formule (« sur Binance », « selon CoinGecko ») et la claim
+qu'elle accompagne. Tout paragraphe qui s'appuie sur cette claim contient la
+formule : un prix de Binance presente sans son nom devient « le prix du
+bitcoin », que Binance ne mesure pas. Une cotation en USDT s'ecrit en USDT,
+jamais en dollars. Le controle de publication verifie chaque paragraphe.
 `;
 
 export const INSTRUCTIONS_PLAN = `${COMMUN}
@@ -395,6 +408,7 @@ export class InvestigateurPlan extends Agent<InvestigateurInput, PlanEnquete> {
       reserves_de_publication: input.publicationCaveats,
       mention_obligatoire: input.requiredDisclaimer,
       divulgations_obligatoires: input.requiredDisclosures,
+      attributions_obligatoires: input.requiredAttributions ?? [],
     });
   }
 }
@@ -423,6 +437,7 @@ export class InvestigateurChapitre extends Agent<ChapitreInput, ChapitreEcrit> {
       reserves_de_publication: input.publicationCaveats,
       mention_obligatoire: input.requiredDisclaimer,
       divulgations_obligatoires: input.requiredDisclosures,
+      attributions_obligatoires: input.requiredAttributions ?? [],
     });
   }
 }

@@ -127,6 +127,8 @@ const VEILLEUR_LARGE: MockResponder = () => ({
 async function lancer(options: {
   responders?: Record<string, MockResponder>;
   investigations?: readonly Investigation[];
+  /** Sources en plus de la fixture, pour un test qui en a besoin. */
+  adapters?: readonly SourceAdapter[];
 }): Promise<PipelineResult> {
   const audit = new AuditLog({ dir: join(workDir, "audit") });
   const pipeline = new EditorialPipeline({
@@ -142,7 +144,7 @@ async function lancer(options: {
       }),
       audit,
     },
-    adapters: [...MOCK_ADAPTERS, ...SOURCES_SUPPLEMENTAIRES],
+    adapters: [...MOCK_ADAPTERS, ...SOURCES_SUPPLEMENTAIRES, ...(options.adapters ?? [])],
     mode: "enquete",
     investigations: options.investigations ?? [],
     editeur: new Editeur(
@@ -152,6 +154,77 @@ async function lancer(options: {
   });
   return pipeline.run("ecart entre deux mesures officielles, mecanisme a demonter");
 }
+
+describe("mode enquete — attributions des donnees de marche", () => {
+  /**
+   * Le format long ne recevait pas les attributions : seul le gate les
+   * imposait. Une enquete de deux mille mots bloquee a la publication pour un
+   * « sur Binance » oublie, c'est une dizaine d'appels au modele pour rien.
+   */
+  const BINANCE =
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=1788998400000&endTime=1789084799999";
+  const binance: SourceAdapter = {
+    id: "binance:bitcoin",
+    describes: "Binance simule",
+    fetch: async () => ({
+      observations: [
+        {
+          source: "Binance",
+          url: BINANCE,
+          date_observed: new Date().toISOString(),
+          date_published: new Date(Date.now() - 3_600_000).toISOString(),
+          type: "donnee-de-marche",
+          resume: "Binance — bitcoin (BTC/USDT). Cloture : 76568.72 USDT.",
+        },
+      ],
+      raw: {},
+      requestedUrl: BINANCE,
+    }),
+  };
+
+  it("transmet « sur Binance » a l'Investigateur, au plan comme a chaque chapitre", async () => {
+    const vus: string[] = [];
+    const analyste = MOCK_RESPONDERS["analyste"] as MockResponder;
+    await lancer({
+      adapters: [binance],
+      responders: {
+        veilleur: (req) => {
+          const r = VEILLEUR_LARGE(req) as { retained: Array<{ url: string; selection_reason: string }> };
+          return { ...r, retained: [...r.retained, { url: BINANCE, selection_reason: "cotation" }] };
+        },
+        analyste: (req) => {
+          const r = analyste(req) as { candidates: Array<Record<string, unknown>> };
+          const [c1, ...reste] = r.candidates;
+          return {
+            ...r,
+            candidates: [
+              {
+                ...c1,
+                text: "[SIMULATION] Sur Binance, le bitcoin a cloture a 76 568,72 USDT le 10 septembre 2026.",
+                sources: [
+                  {
+                    url: BINANCE,
+                    tier: 1,
+                    date_observed: new Date().toISOString(),
+                    date_published: new Date(Date.now() - 3_600_000).toISOString(),
+                  },
+                ],
+              },
+              ...reste,
+            ],
+          };
+        },
+        investigateur: (req) => {
+          vus.push(req.user);
+          return investigateurEnDeuxPasses(req);
+        },
+      },
+    });
+    // Le plan, puis un appel par chapitre : TOUS doivent porter la formule.
+    expect(vus.length).toBeGreaterThan(1);
+    for (const u of vus) expect(u).toContain("« sur Binance »");
+  });
+});
 
 describe("mode enquete — cadence", () => {
   it("refuse d'ouvrir une enquete quand le quota est consomme", async () => {

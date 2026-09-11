@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AnalysteOutput } from "../src/agents/analyste.js";
 import { Analyste } from "../src/agents/analyste.js";
 import { Editeur } from "../src/agents/editeur.js";
+import { InvestigateurChapitre, InvestigateurPlan } from "../src/agents/investigateur.js";
 import { Redacteur } from "../src/agents/redacteur.js";
 import { Veilleur } from "../src/agents/veilleur.js";
 import { AuditLog } from "../src/audit/audit-log.js";
@@ -157,6 +158,60 @@ describe("consignes — le Redacteur recoit les attributions a ecrire", () => {
     );
     expect(req.user).toContain("attributions_obligatoires");
     expect(req.user).toContain("sur Binance");
+    expect(consignes(req)).toMatch(/ATTRIBUTIONS/);
+  });
+});
+
+describe("consignes — l'Investigateur recoit aussi les attributions (format long)", () => {
+  // Le mode enquete ne les recevait pas : seul le gate les imposait, et une
+  // enquete de deux mille mots bloquee a la publication pour un « sur
+  // Binance » oublie, c'est dix appels au modele pour rien.
+  const commun = () => ({
+    topic: "bitcoin",
+    claims: [],
+    criteres: [],
+    sourceMaterial: [],
+    narrativeVsData: "",
+    publicationCaveats: [],
+    requiredDisclaimer: null,
+    requiredDisclosures: [],
+    requiredAttributions: attributionsExigees([claim({ id: "c1", sources: [ref(BINANCE, 1)] })]),
+  });
+
+  const PLAN = {
+    publiable: true,
+    motif_de_refus: null,
+    title: "Une enquete",
+    resume_en_bref: "Le fait, sa portee, son incertitude.",
+    chapitres: [
+      { role: "etabli", titre: "Ce que les donnees etablissent", angle: "les chiffres" },
+      { role: "contradictoire", titre: "Le versant rassurant", angle: "la lecture inverse" },
+      { role: "echeances", titre: "Prochaines echeances a surveiller", angle: "la suite" },
+    ],
+    glossaire: [{ terme: "USDT", definition: "stablecoin" }],
+    bibliographie: { primaires: ["Binance"], secondaires: [], hypotheses: [] },
+    uncertainty_flags: [],
+  };
+
+  it("le plan recoit les attributions obligatoires, et la consigne qui les explique", async () => {
+    const req = await requeteDe("investigateur", PLAN, (ctx) => new InvestigateurPlan(ctx).run(commun()));
+    expect(req.user).toContain("attributions_obligatoires");
+    expect(req.user).toContain("« sur Binance »");
+    expect(consignes(req)).toMatch(/ATTRIBUTIONS/);
+  });
+
+  it("chaque chapitre les recoit aussi : c'est lui qui ecrit le paragraphe controle", async () => {
+    const corps = Array.from({ length: 40 }, (_, i) => `mot${i}`).join(" ");
+    const req = await requeteDe("investigateur", { corps }, (ctx) =>
+      new InvestigateurChapitre(ctx).run({
+        ...commun(),
+        chapitre: { role: "etabli", titre: "Ce que les donnees etablissent", angle: "les chiffres" },
+        dejaEcrits: [],
+        motsVises: 500,
+      }),
+    );
+    expect(req.user).toContain("attributions_obligatoires");
+    expect(req.user).toContain("« sur Binance »");
     expect(consignes(req)).toMatch(/ATTRIBUTIONS/);
   });
 });
