@@ -49,29 +49,17 @@
 
 import { z } from "zod";
 
+import { ROLES_CHAPITRE, type RoleChapitre } from "../protocol/constants.js";
 import type { Claim } from "../protocol/schema.js";
 import type { CritereEnquete } from "../planification/investigation.js";
 import { Agent, asJson } from "./base.js";
 
+// Reexportes pour les appelants qui les importaient d ici.
+export { ROLES_CHAPITRE, type RoleChapitre };
+
 /* -------------------------------------------------------------------------
  * Chapitres
  * ---------------------------------------------------------------------- */
-
-/**
- * Roles de chapitre. Le ROLE est une donnee ; le titre reste libre.
- *
- * Imposer des intitules figes ferait echouer un meilleur titre. Le role permet
- * au code de verifier la structure sans dicter l'habillage.
- */
-export const ROLES_CHAPITRE = [
-  "etabli",
-  "tension",
-  "mecanisme",
-  "contradictoire",
-  "echeances",
-] as const;
-
-export type RoleChapitre = (typeof ROLES_CHAPITRE)[number];
 
 /**
  * Roles sans lesquels le gate refuse de publier.

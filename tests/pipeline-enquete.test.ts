@@ -286,3 +286,45 @@ describe("les autres modes ne changent pas", () => {
     expect(r.article.authors_agents).toContain("redacteur");
   });
 });
+
+describe("mode enquete — le role des chapitres atteint le contrat", () => {
+  it("porte les chapitres et leurs ROLES dans l'article publie", async () => {
+    // Sans cela, le gate reviendrait a deviner le role depuis le titre — la
+    // faute qui a bloque une enquete complete le 2026-09-11.
+    const r = await lancer({});
+    expect(r.status).toBe("published");
+    if (r.status !== "published") return;
+    const roles = (r.article.chapitres ?? []).map((c) => c.role);
+    expect(roles).toContain("contradictoire");
+    expect(roles).toContain("echeances");
+  });
+
+  it("publie une enquete dont le contradictoire a un titre SANS mot-cle", async () => {
+    // Le cas reel : un bon titre, choisi par le modele, qui ne dit pas
+    // « rassurant ». Le role declare doit suffire — adosse au texte.
+    const r = await lancer({
+      responders: {
+        investigateur: (req) =>
+          req.schemaName === "PlanEnquete"
+            ? {
+                ...PLAN_PUBLIABLE,
+                chapitres: [
+                  { role: "etabli", titre: "Les donnees du constat", angle: "les chiffres" },
+                  {
+                    role: "contradictoire",
+                    titre: "Harmonisation globale contre precision locale",
+                    angle: "la these adverse",
+                  },
+                  {
+                    role: "echeances",
+                    titre: "Calendrier de revision et jalons statistiques",
+                    angle: "la suite",
+                  },
+                ],
+              }
+            : CHAPITRE_ECRIT,
+      },
+    });
+    expect(r.status).toBe("published");
+  });
+});

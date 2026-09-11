@@ -189,3 +189,60 @@ describe("§4 — la bibliographie n'exige pas d'inventer des sources", () => {
     expect(regles(enquete(sansBiblio))).toContain("ENQUETE_BIBLIO_NON_SEPAREE");
   });
 });
+
+describe("§5.3 — le ROLE d'un chapitre est porte par le contrat, pas devine", () => {
+  /**
+   * TROISIEME DEFAUT DE MA CONCEPTION, constate le 2026-09-11 sur une enquete
+   * reelle qui franchissait enfin le plancher de longueur.
+   *
+   * Le plan avait declare `role: contradictoire` pour « Harmonisation globale
+   * contre precision locale : le dilemme des producteurs de donnees », et
+   * `role: echeances` pour « Calendrier de revision et jalons statistiques ».
+   * La structure etait COMPLETE. Le rendu jetait le role, puis le gate
+   * essayait de le re-deviner a partir des mots du titre — et de bons titres
+   * ne contiennent pas les mots-cles d'une regle.
+   *
+   * Meme faute que le glossaire jete en silence : une information produite
+   * correctement, perdue entre deux etapes, puis devinee de travers.
+   */
+  const chapitresDeclares = [
+    { role: "etabli" as const, titre: "Les donnees du constat" },
+    { role: "contradictoire" as const, titre: "Harmonisation globale contre precision locale" },
+    { role: "echeances" as const, titre: "Calendrier de revision et jalons statistiques" },
+  ];
+  const corpsAvecTitresLibres = corpsEnquete()
+    .replace("## Le versant rassurant", "## Harmonisation globale contre precision locale")
+    .replace("## Prochaines echeances a surveiller", "## Calendrier de revision et jalons statistiques");
+
+  it("reconnait le chapitre contradictoire par son ROLE declare, quel que soit son titre", () => {
+    const r = regles(
+      article({ mode: "enquete", claims: [claim()], body: corpsAvecTitresLibres, chapitres: chapitresDeclares }),
+    );
+    expect(r).not.toContain("ENQUETE_SANS_CONTRADICTOIRE");
+    expect(r).not.toContain("ENQUETE_SANS_ECHEANCES");
+  });
+
+  it("REFUSE un role declare dont le chapitre n'existe pas dans le corps", () => {
+    // Sans cette verification, declarer « contradictoire » suffirait a franchir
+    // la regle, meme sans ecrire le chapitre. Le role doit etre ADOSSE au texte.
+    const creux = [
+      { role: "contradictoire" as const, titre: "Un chapitre jamais ecrit" },
+      { role: "echeances" as const, titre: "Calendrier de revision et jalons statistiques" },
+    ];
+    const r = regles(
+      article({ mode: "enquete", claims: [claim()], body: corpsAvecTitresLibres, chapitres: creux }),
+    );
+    expect(r).toContain("ENQUETE_SANS_CONTRADICTOIRE");
+  });
+
+  it("reconnait un titre ACCENTUE quand aucun role n'est declare", () => {
+    // Repli pour les articles sans champ `chapitres`. Les motifs etaient ecrits
+    // sans accents : « Les echeances a surveiller » passait, « Les échéances à
+    // surveiller » — le francais correct — echouait.
+    const accentue = corpsEnquete().replace(
+      "## Prochaines echeances a surveiller",
+      "## Les échéances à surveiller",
+    );
+    expect(regles(enquete(accentue))).not.toContain("ENQUETE_SANS_ECHEANCES");
+  });
+});

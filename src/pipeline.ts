@@ -33,6 +33,7 @@ import {
   WEAK_TIERS,
   WEAK_TIER_DISCLAIMER,
   type ArticleMode,
+  type RoleChapitre,
 } from "./protocol/constants.js";
 import {
   boldDisclosure,
@@ -358,7 +359,12 @@ export class EditorialPipeline {
      * que la suite du pipeline n'ait pas a savoir quel agent a ecrit.
      */
     let enqueteRedigee:
-      | { title: string; body: string; uncertainty_flags: string[] }
+      | {
+          title: string;
+          body: string;
+          uncertainty_flags: string[];
+          chapitres: Array<{ role: RoleChapitre; titre: string }>;
+        }
       | undefined;
 
     /* --- Format long : routage, puis redaction par l'Investigateur ------- */
@@ -467,6 +473,10 @@ export class EditorialPipeline {
           bibliographie: plan.bibliographie,
         }),
         uncertainty_flags: plan.uncertainty_flags,
+        // Le ROLE de chaque chapitre voyage jusqu au contrat. Jete au rendu,
+        // il obligeait le gate a le re-deviner depuis le titre — et une
+        // enquete complete a ete refusee pour « contradictoire absent ».
+        chapitres: chapitres.map((c) => ({ role: c.role, titre: c.titre })),
       };
     }
 
@@ -585,6 +595,7 @@ export class EditorialPipeline {
       // declenche les regles de structure du format long (§5.3) : les deduire
       // de la presence des chapitres rendrait le controle circulaire.
       mode: this.mode,
+      ...(enqueteRedigee === undefined ? {} : { chapitres: enqueteRedigee.chapitres }),
       editorial_notes: {
         uncertainty_flags: dedupe(uncertaintyFlags),
         // §7 : "claims rejetees et pourquoi". Uniquement des rejets.

@@ -149,6 +149,22 @@ export const MAX_VERBATIM_CLAIM_SHARE = 0.55;
  * scenario decrit ce qui pourrait advenir, jamais ce qu'il faudrait faire.
  */
 export const ARTICLE_MODES = ["constat", "prospectif", "enquete"] as const;
+
+/**
+ * §5.3 — roles des chapitres d une enquete.
+ *
+ * Vivent dans le PROTOCOLE et non dans l agent : le contrat §7 les porte, et
+ * le schema ne doit pas dependre d un agent. Le role est une donnee ; le
+ * titre reste libre, pour qu un bon titre ne soit jamais penalise.
+ */
+export const ROLES_CHAPITRE = [
+  "etabli",
+  "tension",
+  "mecanisme",
+  "contradictoire",
+  "echeances",
+] as const;
+export type RoleChapitre = (typeof ROLES_CHAPITRE)[number];
 export type ArticleMode = (typeof ARTICLE_MODES)[number];
 
 export const PROSPECTIVE_DISCLAIMER =

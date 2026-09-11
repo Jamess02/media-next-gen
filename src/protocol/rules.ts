@@ -21,6 +21,7 @@ import {
   WEAK_TIERS,
   WEAK_TIER_DISCLAIMER,
   type ClaimType,
+  type RoleChapitre,
 } from "./constants.js";
 import {
   DECLARED_INTERESTS,
@@ -620,12 +621,15 @@ const MIN_MOTS_ENQUETE = 1500;
  */
 const CHAPITRES_ENQUETE: ReadonlyArray<{
   rule: string;
+  /** Role qui le designe dans le contrat, quand il en a un. */
+  role?: RoleChapitre;
   motifs: RegExp;
   quoi: string;
   pourquoi: string;
 }> = [
   {
     rule: "ENQUETE_SANS_CONTRADICTOIRE",
+    role: "contradictoire",
     motifs: /##[^\n]*\b(rassurant|contradictoire|lecture inverse|objections?|a decharge|contre-lecture)\b/i,
     quoi: "un chapitre qui prend au serieux la lecture INVERSE",
     pourquoi:
@@ -635,6 +639,7 @@ const CHAPITRES_ENQUETE: ReadonlyArray<{
   },
   {
     rule: "ENQUETE_SANS_ECHEANCES",
+    role: "echeances",
     motifs: /##[^\n]*\b(echeances?|a surveiller|ce qui reste ouvert|prochaines?)\b/i,
     quoi: "une conclusion tournee vers les ECHEANCES a surveiller",
     pourquoi:
@@ -660,6 +665,47 @@ const CHAPITRES_ENQUETE: ReadonlyArray<{
  * le protocole organise : distinguer ce qui est etabli de ce qui est avance.
  */
 const RUBRIQUE_PRIMAIRES = /#{2,4}.*\bsources? primaires?\b/i;
+
+/** Titre comparable : sans accents, sans casse, espaces reduits. */
+function normaliserTitre(titre: string): string {
+  return titre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Un chapitre exige est-il present ?
+ *
+ * LE ROLE D'ABORD, LE TITRE ENSUITE. Quand le contrat declare les chapitres,
+ * c'est lui qui fait foi : le plan a dit « ce chapitre est le contradictoire »,
+ * et un bon titre n'a pas a contenir les mots-cles d'une regle pour etre
+ * reconnu. Constate le 2026-09-11 : « Harmonisation globale contre precision
+ * locale : le dilemme des producteurs » etait bien le contradictoire, declare
+ * comme tel, et le gate le refusait faute du mot « rassurant ».
+ *
+ * MAIS LE ROLE DOIT ETRE ADOSSE AU TEXTE. Declarer « contradictoire » sur un
+ * chapitre jamais ecrit ne suffit pas : le titre declare doit figurer comme
+ * intertitre du corps. Sans cette verification, le champ `chapitres` deviendrait
+ * une case a cocher qui franchit la regle sans ecrire le chapitre.
+ *
+ * Le repli par mots-cles reste pour les articles sans champ `chapitres`.
+ */
+function chapitrePresent(
+  c: { role?: RoleChapitre; motifs: RegExp },
+  article: Article,
+  corpsSansAccents: string,
+  titresDuCorps: ReadonlySet<string>,
+): boolean {
+  if (c.role !== undefined && article.chapitres !== undefined) {
+    return article.chapitres.some(
+      (ch) => ch.role === c.role && titresDuCorps.has(normaliserTitre(ch.titre)),
+    );
+  }
+  return c.motifs.test(corpsSansAccents);
+}
 
 /**
  * Regles propres au mode `enquete`.
@@ -691,8 +737,17 @@ function ruleEnqueteFormat(article: Article): Violation[] {
     });
   }
 
+  // Les motifs sont testes sur un corps SANS ACCENTS : ecrits sans accents,
+  // ils laissaient passer « Les echeances a surveiller » et refusaient « Les
+  // échéances à surveiller » — c est-a-dire le francais correct.
+  const corpsSansAccents = article.body.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const titresDuCorps = new Set(
+    [...article.body.matchAll(/^#{2,3}\s+(.+?)\s*$/gm)].map((m) => normaliserTitre(m[1] ?? "")),
+  );
+
   for (const c of CHAPITRES_ENQUETE) {
-    if (!c.motifs.test(article.body)) {
+    if (chapitrePresent(c, article, corpsSansAccents, titresDuCorps)) continue;
+    {
       violations.push({
         rule: c.rule,
         clause: "§5.3",

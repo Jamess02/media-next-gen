@@ -18,6 +18,7 @@ import { z } from "zod";
 import {
   ARTICLE_MODES,
   CLAIM_TYPES,
+  ROLES_CHAPITRE,
   CHANGELOG_TYPES,
   EVIDENCE_LEVELS,
   SOURCE_TIERS,
@@ -170,6 +171,24 @@ export const ArticleSchema = z
      * pas.
      */
     mode: z.enum(ARTICLE_MODES).optional(),
+    /**
+     * Chapitres d une enquete, avec leur ROLE. Optionnel, pour la meme raison
+     * que `mode` : les articles anterieurs n en portent pas.
+     *
+     * Le role etait produit par le plan, puis JETE au rendu ; le gate tentait
+     * ensuite de le re-deviner depuis les mots du titre, et un bon titre ne
+     * contient pas les mots-cles d une regle. Constate le 2026-09-11 : une
+     * enquete complete, chapitre contradictoire compris, bloquee pour
+     * « chapitre contradictoire absent ». Le role est donc porte par le
+     * CONTRAT — c est le principe deja applique a `mode`.
+     */
+    chapitres: z
+      .array(
+        z
+          .object({ role: z.enum(ROLES_CHAPITRE), titre: z.string().min(1) })
+          .strict(),
+      )
+      .optional(),
     editorial_notes: EditorialNotesSchema,
     changelog: z.array(ChangelogEntrySchema),
   })
