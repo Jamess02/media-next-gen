@@ -584,11 +584,23 @@ export async function startStudio(
               });
               return;
             }
+            // Le cadre d'apercu est en sandbox SANS scripts : le script de theme
+            // du site ne s'y execute pas. Le studio transmet donc le choix de
+            // l'editeur, et le serveur le pose sur la racine du document.
+            //
+            // LISTE BLANCHE, deux valeurs. Ce parametre est recopie dans le
+            // HTML : une valeur libre y ouvrirait une injection d'attribut.
+            // Toute autre valeur est ignoree, et le systeme decide.
+            const theme = url.searchParams.get("theme");
+            let html = articlePage(parsed.data);
+            if (theme === "dark" || theme === "light") {
+              html = html.replace(/<html lang="fr">/, `<html lang="fr" data-theme="${theme}">`);
+            }
             res.writeHead(200, {
               "content-type": "text/html; charset=utf-8",
               "cache-control": "no-store",
             });
-            res.end(articlePage(parsed.data));
+            res.end(html);
             return;
           }
           case "/api/article": {

@@ -24,13 +24,20 @@ export const STUDIO_PAGE = `<!doctype html>
   --encre:#111; --papier:#fff; --gris:#666; --gris-clair:#949494;
   --trait:#e2e2e2; --doux:#f7f7f5; --accent:#0b57d0;
   --fort:#157347; --moyen:#b4690e; --faible:#b42318;
+  color-scheme:light;
   --mono: ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
 }
+/* Trois etats, comme sur le site. La media query est GARDEE : sans cette
+   garde, choisir « clair » sur une machine en sombre ne ferait rien, la regle
+   systeme continuant de gagner. */
 @media (prefers-color-scheme: dark) {
-  :root { --encre:#ececec; --papier:#101010; --gris:#9a9a9a; --gris-clair:#6f6f6f;
+  :root:not([data-theme="light"]) { --encre:#ececec; --papier:#101010; --gris:#9a9a9a; --gris-clair:#6f6f6f;
     --trait:#2b2b2b; --doux:#191919; --accent:#7aa7ff;
-    --fort:#6dd39a; --moyen:#e0a45c; --faible:#f08a80; }
+    --fort:#6dd39a; --moyen:#e0a45c; --faible:#f08a80; color-scheme:dark; }
 }
+:root[data-theme="dark"] { --encre:#ececec; --papier:#101010; --gris:#9a9a9a; --gris-clair:#6f6f6f;
+    --trait:#2b2b2b; --doux:#191919; --accent:#7aa7ff;
+    --fort:#6dd39a; --moyen:#e0a45c; --faible:#f08a80; color-scheme:dark; }
 *{box-sizing:border-box}
 body{margin:0;background:var(--papier);color:var(--encre);
   font-family:var(--mono);font-size:13px;line-height:1.6}
@@ -75,7 +82,7 @@ button[disabled]{opacity:.45;cursor:not-allowed}
    endroit de l'interface ou une action engage une PERSONNE, pas la machine. */
 .relire{margin-top:9px;padding-top:9px;border-top:1px dashed var(--trait)}
 .relire input{font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--trait);
-  border-radius:3px;background:var(--fond);color:var(--encre)}
+  border-radius:3px;background:var(--papier);color:var(--encre)}
 .relire input.nom{width:150px} .relire input.note{width:210px}
 .relire button{font:inherit;font-size:12px;padding:4px 9px;margin-left:5px}
 .relire .rappel{color:var(--gris);font-size:11px;margin-top:5px}
@@ -85,20 +92,43 @@ button[disabled]{opacity:.45;cursor:not-allowed}
    la relecture doit se faire sur la forme reellement publiee. Hauteur
    genereuse — un article long relu dans une fenetre de 340px ne se relit pas. */
 .apercu{margin-top:8px;width:100%;height:68vh;min-height:420px;border:1px solid var(--trait);
-  border-radius:3px;background:var(--fond);display:block}
+  border-radius:3px;background:var(--papier);display:block}
 .relire .ouvrir{font-size:11.5px;margin-left:9px;color:var(--gris)}
 .relire .ouvrir:hover{color:var(--encre)}
 .echec{color:var(--faible);font-size:11.5px;margin-top:5px;white-space:pre-wrap}
 ul.brut{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto}
 ul.brut li{padding:4px 0;border-bottom:1px dotted var(--trait);font-size:11px;
   color:var(--gris);word-break:break-all}
+/* Bouton de theme, dans le coin de l en-tete. */
+header{position:relative}
+#theme-bascule{position:absolute;top:24px;right:0;font-size:11px;padding:5px 10px;
+  background:transparent;color:var(--gris);border:1px solid var(--trait)}
+#theme-bascule:hover{color:var(--encre);border-color:var(--encre)}
 </style>
+<script>
+// Decide le theme AVANT le premier rendu : applique plus tard, il produirait un
+// flash blanc a chaque ouverture. Meme clef que le site public, pour qu un
+// choix fait dans l un vaille dans l autre. Le try/catch n est pas decoratif :
+// en navigation privee, localStorage LEVE, et sans lui la page ne s afficherait
+// pas du tout.
+(function () {
+  try {
+    var choix = localStorage.getItem("theme");
+    if (choix === "dark" || choix === "light") {
+      document.documentElement.setAttribute("data-theme", choix);
+    }
+  } catch (e) {
+    /* stockage indisponible : on suit le reglage systeme */
+  }
+})();
+</script>
 </head>
 <body>
 <div class="enveloppe">
 <header>
   <h1>Studio — Media Next Gen</h1>
   <div class="accroche">Pilotage local du pipeline editorial. Un arret du gate est un resultat, pas une panne.</div>
+  <button id="theme-bascule" type="button" class="secondaire">theme : systeme</button>
 </header>
 
 <div class="grille">
@@ -238,7 +268,7 @@ function blocRelecture(a) {
     // allow-same-origin laisse le document heriter du theme ; les scripts
     // restent interdits, le contenu n'ayant rien a executer.
     cadre.setAttribute("sandbox", "allow-same-origin");
-    cadre.src = "/apercu?jeton=" + JETON + "&id=" + encodeURIComponent(a.id);
+    cadre.src = urlApercu(a.id);
     bloc.appendChild(cadre);
     lire.textContent = "replier";
   });
@@ -248,7 +278,8 @@ function blocRelecture(a) {
   ouvrir.target = "_blank";
   ouvrir.rel = "noopener";
   ouvrir.textContent = "ouvrir en pleine page";
-  ouvrir.href = "/apercu?jeton=" + JETON + "&id=" + encodeURIComponent(a.id);
+  ouvrir.href = urlApercu(a.id);
+  ouvrir.setAttribute("data-apercu", a.id);
   ligne.appendChild(ouvrir);
 
   valider.addEventListener("click", async () => {
@@ -404,6 +435,60 @@ $("generer").addEventListener("click", async () => {
     b.disabled = false;
   }
 });
+
+/* --- Theme ---------------------------------------------------------------
+   Trois etats : systeme -> sombre -> clair -> systeme. Revenir au systeme est
+   un etat a part entiere : sans lui, quiconque a essaye la bascule ne pourrait
+   plus jamais suivre son reglage machine. */
+function themeCourant() {
+  var t = document.documentElement.getAttribute("data-theme");
+  return t === "dark" || t === "light" ? t : null;
+}
+
+// Le cadre d apercu ne peut pas lire le choix lui-meme (sandbox sans scripts) :
+// on le lui transmet. Sans cela, l editeur en sombre relirait l article en
+// clair — une autre page que celle d un lecteur ayant fait le meme choix.
+function urlApercu(id) {
+  var t = themeCourant();
+  return "/apercu?jeton=" + JETON + "&id=" + encodeURIComponent(id) + (t ? "&theme=" + t : "");
+}
+
+(function () {
+  var bouton = $("theme-bascule");
+  var ETATS = ["systeme", "dark", "light"];
+  var LIBELLES = { systeme: "theme : systeme", dark: "theme : sombre", light: "theme : clair" };
+
+  function lire() {
+    var t = themeCourant();
+    return t === null ? "systeme" : t;
+  }
+
+  function appliquer(etat) {
+    if (etat === "systeme") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", etat);
+    bouton.textContent = LIBELLES[etat];
+    bouton.setAttribute("aria-label", "Changer le theme d affichage. Actuel : " + LIBELLES[etat]);
+    try {
+      if (etat === "systeme") localStorage.removeItem("theme");
+      else localStorage.setItem("theme", etat);
+    } catch (e) {
+      /* stockage indisponible : le choix vaut pour cette page seulement */
+    }
+    // Les apercus deja ouverts suivent le nouveau choix.
+    document.querySelectorAll("iframe.apercu").forEach(function (f) {
+      var id = new URL(f.src, location.href).searchParams.get("id");
+      if (id) f.src = urlApercu(id);
+    });
+    document.querySelectorAll("a[data-apercu]").forEach(function (l) {
+      l.href = urlApercu(l.getAttribute("data-apercu"));
+    });
+  }
+
+  appliquer(lire());
+  bouton.addEventListener("click", function () {
+    appliquer(ETATS[(ETATS.indexOf(lire()) + 1) % ETATS.length]);
+  });
+})();
 
 charger();
 
