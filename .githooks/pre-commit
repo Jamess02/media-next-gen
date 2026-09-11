@@ -1,0 +1,7 @@
+#!/bin/sh
+# Refuse un commit contenant un secret. Voir scripts/verifier-secrets.ts.
+#
+# Active par : git config core.hooksPath .githooks
+# Contournable par --no-verify : c'est voulu, un hook n'est pas une prison.
+# Le test securite-secrets.test.ts, lui, n'est pas contournable en CI.
+exec npx tsx scripts/verifier-secrets.ts

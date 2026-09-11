@@ -39,7 +39,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const CLEF = "bbb1cad5dab9fe4e5766f4b6cd1cedc2";
+/**
+ * Valeur FICTIVE, et qui doit le rester.
+ *
+ * Ici se trouvait la vraie clef FRED de production. Elle a ete commitee, puis
+ * poussee sur un depot PUBLIC, ou elle est restee jusqu'a sa revocation le
+ * 2026-09-10. Ce test verifie que la clef est CAVIARDEE des messages d'erreur
+ * et des URLs : sa valeur n'a donc jamais eu besoin d'etre reelle.
+ *
+ * Elle ne ressemble volontairement a aucun gabarit de clef, pour que
+ * `securite-secrets.test.ts` — qui interdit desormais tout secret dans un
+ * fichier suivi par git — n'ait pas a l'excepter.
+ */
+const CLEF = "CLEF-FICTIVE-DE-TEST-ne-pas-utiliser";
 const URL_AVEC_CLEF =
   `https://api.stlouisfed.org/fred/series/observations` +
   `?series_id=FEDFUNDS&api_key=${CLEF}&file_type=json`;
