@@ -11,6 +11,7 @@ import {
   runEditorialGate,
   detectIllegalPromotions,
   detectUngroundedFigures,
+  detectUngroundedStructuredFigures,
 } from "../src/protocol/rules.js";
 import type { Claim } from "../src/protocol/schema.js";
 import { article, claim, PROSE_MINIMALE } from "./helpers.js";
@@ -328,6 +329,45 @@ describe("§2 — ancrage des chiffres dans les sources", () => {
       );
       expect(v, forme).toHaveLength(0);
     }
+  });
+
+  describe("un prix de marche n'est pas une annee", () => {
+    // Le retrait des dates effacait TOUT nombre de 1900 a 2099. Un cours de
+    // l'ether a 2045,37 USDT perdait sa partie entiere et devenait « 37 » :
+    // une claim exacte etait alors signalee au lecteur comme un chiffre
+    // absent des sources. Les donnees de marche rendent le cas courant.
+    const source = ["Binance — ether (ETH/USDT). Cloture : 2045.37 USDT ; volume 347434.21 ETH."];
+
+    it("reconnait 2 045,37 ecrit a la francaise dans une source qui porte 2045.37", () => {
+      const v = detectUngroundedFigures(
+        [claim({ text: "Sur Binance, l'ether a cloture a 2 045,37 USDT." })],
+        source,
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it("retrouve le chiffre STRUCTURE 2045.37 dans la source", () => {
+      const c = claim({
+        text: "Sur Binance, l'ether a cloture a 2 045,37 USDT.",
+        figure: { label: "Ether sur Binance", value: 2045.37, unit: "USDT", as_of: "2026-09-10" },
+      });
+      expect(detectUngroundedStructuredFigures([c], source)).toHaveLength(0);
+    });
+
+    it("n'efface pas un montant entier suivi de son unite", () => {
+      const c = claim({
+        text: "Sur Binance, l'ether a cloture a 2045 USDT.",
+        figure: { label: "Ether sur Binance", value: 2045, unit: "USDT", as_of: "2026-09-10" },
+      });
+      expect(
+        detectUngroundedStructuredFigures([c], ["Cloture : 2045 USDT ; volume 347434.21 ETH."]),
+      ).toHaveLength(0);
+    });
+
+    it("retire toujours une vraie annee, y compris en fin de phrase", () => {
+      expect(check("L'inflation etait de 2,47 % en zone euro en 2025.")).toHaveLength(0);
+      expect(check("En 2026, le taux effectif s'etablit a 3,63 %.")).toHaveLength(0);
+    });
   });
 
   it("reste un avertissement, jamais un blocage", () => {

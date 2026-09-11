@@ -1387,7 +1387,15 @@ function stripDates(text: string): string {
     .replace(/\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?/g, " ")
     .replace(new RegExp(`\\d{1,2}${ORDINAL}\\s+(?:${MOIS})\\s+\\d{4}`, "gi"), " ")
     .replace(new RegExp(`\\d{1,2}${ORDINAL}\\s+(?:${MOIS})`, "gi"), " ")
-    .replace(/\b(?:19|20)\d{2}\b/g, " ");
+    // Une annee est un entier ISOLE. Pas la partie entiere d'un decimal
+    // (« 2045,37 », un cours de l'ether) ni un montant suivi de son unite
+    // (« 2045 USDT ») : les effacer changeait une claim exacte en « chiffre
+    // absent des sources », signale au lecteur. Les donnees de marche ont
+    // rendu le cas courant.
+    .replace(
+      /(?<![.,]\d*)\b(?:19|20)\d{2}\b(?![.,]\d)(?!\s*(?:%|\$|€|(?:usdt|usd|eur|dollars?|euros?|points?|barils?|btc|eth)\b))/gi,
+      " ",
+    );
 }
 
 /**
