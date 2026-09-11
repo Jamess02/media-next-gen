@@ -309,6 +309,27 @@ describe("§2 — ancrage des chiffres dans les sources", () => {
     expect(v).toHaveLength(0);
   });
 
+  it("ne prend pas l'ordinal d'une date pour un chiffre (1er du mois)", () => {
+    // Cas REEL, observe le 2026-09-09 sur un article publie.
+    //
+    // Les series FRED mensuelles sont datees au PREMIER du mois, et le
+    // francais ecrit ce jour "1er". `stripDates` reconnaissait "12 aout" mais
+    // pas "1er aout" : le "er" rompt le motif \d{1,2}\s+MOIS. L'annee partait,
+    // "1er aout" restait, et le 1 etait signale comme un chiffre sorti de
+    // nulle part — dans presque TOUT article adosse a FRED.
+    //
+    // Source UNIQUE a dessein : avec plusieurs valeurs, l'ecart entre deux d'
+    // entre elles arrondi a l'unite vaut souvent 1 et "ancrerait" le bug par
+    // accident, masquant la regression.
+    for (const forme of ["1er aout 2026", "1er ao\u00fbt 2026", "1er aout"]) {
+      const v = detectUngroundedFigures(
+        [claim({ text: "Le taux effectif s'est etabli a 3,63 % au " + forme + "." })],
+        ["Taux effectif des fonds federaux — FEDFUNDS : 3.63 au 2026-08-01."],
+      );
+      expect(v, forme).toHaveLength(0);
+    }
+  });
+
   it("reste un avertissement, jamais un blocage", () => {
     // Un blocage sur ce controle rendrait le pipeline inutilisable : les
     // conversions d'unite et les seuils hypothetiques sont legitimes.

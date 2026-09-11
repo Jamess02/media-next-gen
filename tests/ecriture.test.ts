@@ -432,3 +432,69 @@ describe("mode prospectif", () => {
     );
   });
 });
+
+describe("§5.3 — la reference ne tient pas lieu de phrase", () => {
+  // Cas REEL, observe le 2026-09-09 lors de la comparaison des modeles :
+  // `gemini-3.6-flash` a publie « En effet, [[claim-1]]. » et « Ainsi,
+  // [[claim-2]]. ». La reference REMPLACE l'affirmation au lieu de
+  // l'accompagner : le lecteur ne lit jamais le chiffre, seulement un
+  // marqueur. Seul modele sur cinq a le produire, 2 fois sur 14 articles.
+  //
+  // Le §7 passait a la lettre — la claim existe (pas de
+  // DANGLING_CLAIM_REFERENCE) et elle est referencee (pas de
+  // CLAIM_NOT_REFERENCED). C'etait precisement l'angle mort.
+
+  const avec = (phrase: string) => article({ body: `${article().body} ${phrase}` });
+
+  it("bloque une phrase reduite a un connecteur et une reference", () => {
+    const v = rules(avec("En effet, [[claim-1]].")).find(
+      (x) => x.rule === "CLAIM_REF_AS_SENTENCE",
+    );
+    expect(v?.severity).toBe("blocking");
+    expect(v?.clause).toBe("§5.3");
+    expect(v?.message).toContain("En effet");
+  });
+
+  it("bloque une phrase reduite a la seule reference", () => {
+    expect(ruleNames(avec("[[claim-1]]."))).toContain("CLAIM_REF_AS_SENTENCE");
+  });
+
+  it("bloque « Ainsi, [[claim]]. », l'autre forme observee", () => {
+    expect(ruleNames(avec("Ainsi, [[claim-1]]."))).toContain(
+      "CLAIM_REF_AS_SENTENCE",
+    );
+  });
+
+  it("laisse passer une reference apposee a une affirmation COURTE", () => {
+    // Garde-fou contre le faux positif evident : un simple comptage de mots
+    // condamnerait « L'inflation ralentit [[claim-1]]. », qui est une phrase
+    // correcte. C'est l'absence de contenu, pas la brievete, qui est le defaut.
+    expect(ruleNames(avec("L'inflation ralentit [[claim-1]]."))).not.toContain(
+      "CLAIM_REF_AS_SENTENCE",
+    );
+  });
+
+  it("laisse passer une reference apposee a une phrase pleine", () => {
+    expect(
+      ruleNames(avec("Selon Eurostat, l'inflation atteint 2 % [[claim-1]].")),
+    ).not.toContain("CLAIM_REF_AS_SENTENCE");
+  });
+
+  it("laisse passer le corps redige de reference", () => {
+    expect(ruleNames(article())).not.toContain("CLAIM_REF_AS_SENTENCE");
+  });
+
+  it("ne coupe pas une phrase sur le point INTERIEUR a une citation", () => {
+    // Faux positif attrape par la suite existante : citer la claim puis la
+    // referencer est une forme legitime. Le point final de la citation coupait
+    // la phrase et laissait le fragment « » [[claim-1]]. », vide de mots
+    // pleins, donc signale a tort. C est l article REDUIT a ses claims que
+    // BODY_IS_CLAIM_PASTE surveille, pas la citation elle-meme.
+    const c = claim();
+    const a = article({
+      claims: [c],
+      body: `Voici ce qui est etabli : « ${c.text} » [[${c.id}]].${PROSE_MINIMALE}`,
+    });
+    expect(ruleNames(a)).not.toContain("CLAIM_REF_AS_SENTENCE");
+  });
+});

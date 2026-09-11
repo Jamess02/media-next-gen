@@ -491,6 +491,248 @@ function ruleBodyIsRedacted(article: Article): Violation[] {
   return violations;
 }
 
+/**
+ * Mots CHARNIERE : ils articulent une phrase sans rien affirmer.
+ *
+ * La liste est volontairement courte. Elle sert a repondre a une seule
+ * question : « une fois les references et ces mots retires, reste-t-il quelque
+ * chose ? » Chaque mot ajoute ici rend la regle PLUS severe, donc plus exposee
+ * au faux positif — un mot n'y entre que s'il ne peut, seul, rien etablir.
+ */
+const MOTS_CHARNIERE: ReadonlySet<string> = new Set([
+  // connecteurs
+  "en", "effet", "ainsi", "donc", "or", "mais", "cependant", "toutefois",
+  "neanmoins", "neanmoins", "outre", "par", "ailleurs", "egalement",
+  "aussi", "enfin", "ensuite", "puis", "alors", "partant", "notamment",
+  "surtout", "certes", "bref", "autrement", "dit", "savoir", "voici",
+  "voila", "premierement", "deuxiemement", "troisiemement",
+  "premier", "premiere", "second", "seconde", "lieu", "lors", "des",
+  // determinants, pronoms, auxiliaires : jamais porteurs d'une affirmation
+  "le", "la", "les", "l", "un", "une", "de", "du", "d", "ce", "cet", "cette",
+  "ces", "cela", "ceci", "c", "il", "elle", "ils", "elles", "on", "y", "a",
+  "et", "que", "qui", "dont", "est", "sont", "etait", "etaient", "ont",
+  "au", "aux", "dans", "sur", "pour", "avec", "se", "s", "n", "ne", "pas",
+  "meme", "tout", "tous", "quant", "si", "plus",
+]);
+
+/**
+ * Mots PLEINS d'une phrase : references de claims et mots charnieres retires.
+ *
+ * Les accents sont retires avant comparaison, sinon « egalement » et
+ * « egalement » (accentue) seraient deux entrees a maintenir en double.
+ */
+function motsPleins(phrase: string): string[] {
+  return phrase
+    .replace(CLAIM_REFERENCE_PATTERN, " ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z]+/)
+    .filter((m) => m.length > 0 && !MOTS_CHARNIERE.has(m));
+}
+
+/**
+ * Une citation « ... » compte comme du CONTENU, et son point final ne termine
+ * pas la phrase.
+ *
+ * Sans ce masquage, « Voici ce qui est etabli : « <claim>. » [[claim-1]]. »
+ * se coupait au point INTERIEUR aux guillemets et laissait le fragment
+ * « » [[claim-1]]. », vide de mots pleins et donc signale a tort. Citer la
+ * preuve puis la referencer est une forme legitime : c'est l'article REDUIT a
+ * ses claims que BODY_IS_CLAIM_PASTE surveille, pas la citation elle-meme.
+ *
+ * Le remplacement par un mot plein est deliberé : une phrase qui ne serait
+ * qu'une citation suivie de sa reference reste une citation, pas un renvoi vide.
+ */
+function masquerCitations(body: string): string {
+  return body
+    .replace(/«[^»]*»/g, " citation ")
+    .replace(/\u201c[^\u201d]*\u201d/g, " citation ");
+}
+
+/**
+ * §5.3 — une reference ACCOMPAGNE une affirmation, elle ne la REMPLACE pas.
+ *
+ * Cas REEL du 2026-09-09, releve en comparant les modeles : `gemini-3.6-flash`
+ * a publie « En effet, [[claim-1]]. » puis « Ainsi, [[claim-2]]. ». Le
+ * marqueur occupe la place de la phrase ; le lecteur ne voit jamais le
+ * chiffre, seulement un renvoi vers la fiche de preuve.
+ *
+ * L'ANGLE MORT QUE CETTE REGLE FERME
+ *
+ * Le §7 etait respecte a la lettre : la claim existe (donc pas de
+ * DANGLING_CLAIM_REFERENCE) et elle est bien referencee (donc pas de
+ * CLAIM_NOT_REFERENCED). Les deux regles qui surveillent les references
+ * passaient, et le corps restait au-dessus du plancher de mots puisque les
+ * autres paragraphes etaient rediges. Aucune des 25 regles ne voyait le defaut.
+ *
+ * POURQUOI PAS UN SIMPLE COMPTAGE DE MOTS
+ *
+ * « L'inflation ralentit [[claim-1]]. » est courte et CORRECTE : un plancher
+ * de mots la condamnerait. Ce n'est pas la brievete le defaut, c'est l'absence
+ * de contenu. On exige donc qu'il reste AU MOINS UN mot plein.
+ *
+ * Bloquant, comme BODY_TOO_THIN et BODY_IS_CLAIM_PASTE : le §5.3 porte sur la
+ * realite du travail de redaction, et une phrase sans contenu n'est jamais
+ * intentionnelle.
+ */
+function ruleClaimRefIsNotSentence(article: Article): Violation[] {
+  return masquerCitations(article.body)
+    .split(/(?<=[.!?])\s+/)
+    .filter(
+      (phrase) =>
+        referencedClaimIds(phrase).size > 0 && motsPleins(phrase).length === 0,
+    )
+    .map((phrase) => ({
+      rule: "CLAIM_REF_AS_SENTENCE",
+      clause: "§5.3",
+      severity: "blocking" as const,
+      message:
+        `La phrase « ${phrase.trim().slice(0, 80)} » se reduit a une reference ` +
+        `de claim : le marqueur remplace l'affirmation au lieu de ` +
+        `l'accompagner. Le lecteur n'y lit aucun fait, seulement un renvoi. ` +
+        `Rediger l'affirmation, puis y apposer la reference.`,
+      path: "body",
+    }));
+}
+
+/* -------------------------------------------------------------------------
+ * §5.3 — format ENQUETE (long)
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Plancher de l'enquete longue.
+ *
+ * Le format est ANNONCE au lecteur comme une enquete de 1500 a 3000 mots. Un
+ * texte de 400 mots publie sous ce pavillon n'est pas seulement court : il
+ * rompt le contrat de lecture. C'est pourquoi le controle est bloquant, la ou
+ * BODY_TOO_THIN se contente d'un plancher generique bien plus bas.
+ */
+const MIN_MOTS_ENQUETE = 1500;
+
+/**
+ * Chapitres exigés, reconnus par leur intention et non par un titre exact.
+ *
+ * Imposer un intitule litteral ("## Le versant rassurant") ferait echouer un
+ * titre meilleur. On cherche donc des marqueurs de sens, et on accepte
+ * plusieurs formulations : le controle porte sur la PRESENCE du chapitre, pas
+ * sur son habillage.
+ */
+const CHAPITRES_ENQUETE: ReadonlyArray<{
+  rule: string;
+  motifs: RegExp;
+  quoi: string;
+  pourquoi: string;
+}> = [
+  {
+    rule: "ENQUETE_SANS_CONTRADICTOIRE",
+    motifs: /##[^\n]*\b(rassurant|contradictoire|lecture inverse|objections?|a decharge|contre-lecture)\b/i,
+    quoi: "un chapitre qui prend au serieux la lecture INVERSE",
+    pourquoi:
+      "c'est le chapitre le plus facile a omettre, et celui sans lequel une " +
+      "enquete devient une demonstration. Le §2 demande des affirmations " +
+      "contestables ; un texte qui n'expose jamais la lecture adverse ne l'est pas.",
+  },
+  {
+    rule: "ENQUETE_SANS_ECHEANCES",
+    motifs: /##[^\n]*\b(echeances?|a surveiller|ce qui reste ouvert|prochaines?)\b/i,
+    quoi: "une conclusion tournee vers les ECHEANCES a surveiller",
+    pourquoi:
+      "une enquete se conclut sur ce qui trancherait, pas sur un verdict. " +
+      "Une cloture definitive promet une certitude que les sources ne portent pas.",
+  },
+  {
+    rule: "ENQUETE_SANS_GLOSSAIRE",
+    motifs: /##[^\n]*\b(glossaire|lexique|definitions?)\b/i,
+    quoi: "un glossaire des notions techniques introduites",
+    pourquoi:
+      "le format long introduit des notions que le lecteur ne possede pas " +
+      "forcement. Sans glossaire, la longueur devient une barriere au lieu " +
+      "d'un service.",
+  },
+];
+
+/**
+ * §4 — la bibliographie doit SEPARER les natures de sources.
+ *
+ * Une liste indifferenciee melange un releve d'institut, une reprise de presse
+ * et une hypothese de lecture. Le lecteur ne peut alors plus faire ce que tout
+ * le protocole organise : distinguer ce qui est etabli de ce qui est avance.
+ */
+const RUBRIQUE_PRIMAIRES = /#{2,4}.*\bsources? primaires?\b/i;
+
+/**
+ * Regles propres au mode `enquete`.
+ *
+ * Elles ne s'appliquent QU'a ce mode. Les imposer a un constat de 300 mots le
+ * bloquerait sans raison : il ne promet ni chapitres, ni glossaire, ni
+ * bibliographie tripartite.
+ *
+ * Un article sans champ `mode` est traite comme un constat — c'est le cas des
+ * brouillons produits avant l'introduction du format long.
+ */
+function ruleEnqueteFormat(article: Article): Violation[] {
+  if (article.mode !== "enquete") return [];
+
+  const violations: Violation[] = [];
+  const mots = bodyWords(article.body);
+
+  if (mots < MIN_MOTS_ENQUETE) {
+    violations.push({
+      rule: "ENQUETE_TROP_COURTE",
+      clause: "§5.3",
+      severity: "blocking",
+      message:
+        `Enquete de ${mots} mots pour un plancher de ${MIN_MOTS_ENQUETE}. ` +
+        `Le format long est ANNONCE au lecteur : le publier court rompt le ` +
+        `contrat de lecture. Soit le sujet portait la matiere et elle n'a pas ` +
+        `ete exploitee, soit il ne la portait pas et le routage a echoue.`,
+      path: "body",
+    });
+  }
+
+  for (const c of CHAPITRES_ENQUETE) {
+    if (!c.motifs.test(article.body)) {
+      violations.push({
+        rule: c.rule,
+        clause: "§5.3",
+        severity: "blocking",
+        message: `Enquete sans ${c.quoi} : ${c.pourquoi}`,
+        path: "body",
+      });
+    }
+  }
+
+  // EXIGER LA DISTINCTION, PAS CHAQUE NATURE DE SOURCE.
+  //
+  // La premiere version reclamait les TROIS rubriques remplies. Constate sur
+  // une enquete reelle : un texte adosse uniquement a Eurostat, la Banque
+  // mondiale et le FMI n a legitimement AUCUNE source secondaire, et se
+  // trouvait bloque. La regle punissait le cas ideal, et poussait a inventer
+  // des references de presse pour franchir un controle cense garantir la
+  // tracabilite — exactement l inverse de son objet.
+  //
+  // Ce qui est exige : une bibliographie, et la rubrique des sources
+  // PRIMAIRES. Une enquete sans source primaire n est pas une enquete.
+  if (!RUBRIQUE_PRIMAIRES.test(article.body)) {
+    violations.push({
+      rule: "ENQUETE_BIBLIO_NON_SEPAREE",
+      clause: "§4",
+      severity: "blocking",
+      message:
+        "Bibliographie sans rubrique « sources primaires ». Le §4 demande de " +
+        "distinguer la nature des sources : une liste indifferenciee melange " +
+        "un releve d institut, une reprise de presse et une hypothese, et " +
+        "prive le lecteur de la distinction que tout le protocole organise. " +
+        "Les rubriques secondaires et hypotheses ne sont exigees que si de " +
+        "telles sources existent — on ne demande pas d en inventer.",
+      path: "body",
+    });
+  }
+
+  return violations;
+}
+
 /* -------------------------------------------------------------------------
  * Langue de redaction
  * ---------------------------------------------------------------------- */
@@ -858,6 +1100,8 @@ const DOCUMENT_RULES = [
   ruleInterestDisclosed,
   ruleBodyReferences,
   ruleBodyIsRedacted,
+  ruleEnqueteFormat,
+  ruleClaimRefIsNotSentence,
   ruleRedactionInFrench,
   ruleScenarioHasCondition,
   ruleUnsourcedSuperlative,
@@ -891,6 +1135,20 @@ const MOIS =
   "janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre";
 
 /**
+ * Suffixe ordinal francais, optionnel, entre le quantieme et le mois.
+ *
+ * Seul le PREMIER du mois s'ecrit ainsi ("1er janvier"), mais on accepte les
+ * variantes rencontrees dans les depeches. Sans ce motif, "1er aout 2026"
+ * echappait au retrait des dates : l'annee partait, le jour restait, et le
+ * "1" devenait un chiffre a justifier.
+ *
+ * Le cas n'est pas marginal : les series FRED mensuelles sont datees au
+ * PREMIER du mois, donc presque tout article adosse a FRED portait un
+ * avertissement d'ancrage infonde.
+ */
+const ORDINAL = "(?:\\s*(?:er|re|[eè]re|e))?";
+
+/**
  * Retire les dates avant extraction : ce ne sont pas des mesures.
  *
  * Sans cela, "le 12 aout" fournit la valeur 12, et le controle d'ecart la
@@ -901,8 +1159,8 @@ const MOIS =
 function stripDates(text: string): string {
   return text
     .replace(/\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?/g, " ")
-    .replace(new RegExp(`\\d{1,2}\\s+(?:${MOIS})\\s+\\d{4}`, "gi"), " ")
-    .replace(new RegExp(`\\d{1,2}\\s+(?:${MOIS})`, "gi"), " ")
+    .replace(new RegExp(`\\d{1,2}${ORDINAL}\\s+(?:${MOIS})\\s+\\d{4}`, "gi"), " ")
+    .replace(new RegExp(`\\d{1,2}${ORDINAL}\\s+(?:${MOIS})`, "gi"), " ")
     .replace(/\b(?:19|20)\d{2}\b/g, " ");
 }
 
