@@ -54,6 +54,12 @@ export interface RedacteurInput {
    * Le gate refuse l'article si l'une d'elles manque.
    */
   requiredDisclosures: readonly string[];
+  /**
+   * Attributions des donnees de marche — « sur Binance », « selon CoinGecko » —
+   * produites par `protocol/sources-de-marche.ts`, que le gate relit pour
+   * verifier. Optionnel : un article sans donnee de marche n'en porte aucune.
+   */
+  requiredAttributions?: readonly string[];
   /** `constat` documente l'etabli, `prospectif` explore le conditionnel. */
   mode: ArticleMode;
   /**
@@ -226,6 +232,17 @@ passage en gras. Une divulgation manquante bloque l'article.
 
 Ces sources se citent comme des prises de position d'acteurs du marche, jamais
 comme des donnees neutres.
+
+ATTRIBUTIONS DES DONNEES DE MARCHE (\`attributions_obligatoires\`) — non
+negociable.
+
+Chaque entree donne une formule (« sur Binance », « selon CoinGecko ») et la
+claim qu'elle accompagne. Le PARAGRAPHE qui s'appuie sur cette claim contient
+la formule : c'est le corps que le lecteur lit, et un prix de Binance presente
+sans son nom devient « le prix du bitcoin », que Binance ne mesure pas. Une
+cotation en USDT s'ecrit en USDT, jamais en dollars. Le controle de
+publication verifie chaque paragraphe ; une attribution manquante bloque
+l'article.
 `;
 
 export class Redacteur extends Agent<RedacteurInput, RedacteurOutput> {
@@ -244,6 +261,7 @@ export class Redacteur extends Agent<RedacteurInput, RedacteurOutput> {
       reserves_de_publication: input.publicationCaveats,
       mention_obligatoire: input.requiredDisclaimer,
       divulgations_obligatoires: input.requiredDisclosures,
+      attributions_obligatoires: input.requiredAttributions ?? [],
     });
   }
 }

@@ -30,6 +30,7 @@ const COMMANDES = [
   "preview",
   "studio",
   "revise",
+  "marches",
 ] as const;
 
 /**

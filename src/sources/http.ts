@@ -63,12 +63,19 @@ export class SourceFetchError extends Error {
   readonly sourceName: string;
   readonly requestedUrl: string;
   readonly status: number | undefined;
+  /**
+   * Vrai pour une panne qui peut disparaitre d'elle-meme : delai depasse,
+   * reseau coupe. Un appelant qui reessaie ne reessaie QUE celles-la — une URL
+   * refusee ou un 404 rendraient le meme resultat a chaque essai.
+   */
+  readonly transitoire: boolean;
 
   constructor(
     sourceName: string,
     requestedUrl: string,
     detail: string,
     status?: number,
+    transitoire = false,
   ) {
     // Caviardage a la SOURCE. Le faire plus tard supposerait que tous les
     // consommateurs de cette erreur y pensent ; l'un d'eux ne le faisait pas,
@@ -80,6 +87,7 @@ export class SourceFetchError extends Error {
     this.sourceName = sourceName;
     this.requestedUrl = url;
     this.status = status;
+    this.transitoire = transitoire;
   }
 }
 
@@ -151,7 +159,7 @@ export async function safeFetch(
         cause.name === "TimeoutError" || cause.name === "AbortError"
           ? `pas de reponse en ${timeoutMs} ms`
           : `echec reseau — ${cause.message}`;
-      throw new SourceFetchError(sourceName, cible, detail);
+      throw new SourceFetchError(sourceName, cible, detail, undefined, true);
     }
 
     if (!REDIRECT_CODES.has(reponse.status)) return reponse;

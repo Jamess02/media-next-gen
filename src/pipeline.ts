@@ -18,6 +18,7 @@ import type { AgentContext } from "./agents/base.js";
 import { Editeur, PublicationRefused } from "./agents/editeur.js";
 import {
   FactChecker,
+  appliquerUsagesDesSources,
   applyVerdicts,
   reconcileTiers,
   type GateDecision,
@@ -59,7 +60,8 @@ import {
   evaluerSujet,
   type Investigation,
 } from "./planification/investigation.js";
-import { SourceGateway } from "./sources/gateway.js";
+import { attributionsExigees } from "./protocol/sources-de-marche.js";
+import { SourceGateway, estPertinent } from "./sources/gateway.js";
 import type { SourceAdapter } from "./sources/types.js";
 
 /**
@@ -181,7 +183,13 @@ export class EditorialPipeline {
     }
 
     /* --- §5.1 Collecte --------------------------------------------------- */
-    this.onStage("collecte", `interrogation de ${this.options.adapters.length} source(s)`);
+    // Les sources hors sujet (donnees de marche d'un article sur l'Iran) ne sont
+    // pas interrogees : le compte annonce doit etre celui des sources
+    // reellement consultees, pas celui du catalogue.
+    const interrogees = this.options.adapters.filter((a) =>
+      estPertinent(a, { topic, since: this.since }),
+    ).length;
+    this.onStage("collecte", `interrogation de ${interrogees} source(s)`);
     const collection = await this.gateway.collect(
       { topic, since: this.since },
       "veilleur",
@@ -239,11 +247,32 @@ export class EditorialPipeline {
 
     /* --- §5.2 / §9.3 Gate bloquant --------------------------------------- */
     // Pre-controle : les tiers annonces sont reverifies AVANT le modele.
-    const { candidates, corrections } = reconcileTiers(analysis.candidates);
+    const { candidates: reconciliees, corrections } = reconcileTiers(analysis.candidates);
     if (corrections.length > 0) {
       this.onStage(
         "fact-checking",
         `${corrections.length} tier(s) corrige(s) depuis le registre`,
+      );
+    }
+
+    // Un signal de pre-verification (Yahoo) n'est jamais une preuve : retire
+    // des citations, et la claim qui ne reposait que sur lui est rejetee avant
+    // que le modele ne la juge. Le verdict est connu d'avance ; le payer en
+    // appel serait aussi laisser au modele la possibilite de la garder.
+    const usages = appliquerUsagesDesSources(reconciliees);
+    const candidates = usages.candidates;
+    if (usages.exclues.length + usages.ajustements.length > 0) {
+      this.onStage(
+        "fact-checking",
+        `signaux de pre-verification : ${usages.exclues.length} claim(s) ecartee(s), ` +
+          `${usages.ajustements.length} citation(s) retiree(s)`,
+      );
+    }
+    if (candidates.length === 0) {
+      return halt(
+        "fact-checking",
+        "aucune claim ne repose sur une source citable : toutes s'appuyaient sur un signal de pre-verification",
+        usages.exclues,
       );
     }
 
@@ -295,10 +324,18 @@ export class EditorialPipeline {
         return halt(
           "fact-checking",
           "aucune claim n'atteint le niveau de preuve 2 (§2), meme apres reformulation",
-          [...gate.excluded, ...retryGate.excluded],
+          [...usages.exclues, ...gate.excluded, ...retryGate.excluded],
         );
       }
     }
+
+    // Les rejets et retraits du pre-controle rejoignent ceux du gate : le §7
+    // veut les claims ecartees ET leur motif, quel que soit l'etage qui a tranche.
+    gate = {
+      ...gate,
+      excluded: [...usages.exclues, ...gate.excluded],
+      adjustments: [...usages.ajustements, ...gate.adjustments],
+    };
 
     /* --- Mode prospectif : au moins un scenario ---------------------------- */
     // Un article annonce prospectif qui ne contiendrait que des constats
@@ -491,6 +528,9 @@ export class EditorialPipeline {
       publicationCaveats: analysis.publication_caveats,
       requiredDisclaimer: allSourcesWeak ? WEAK_TIER_DISCLAIMER : null,
       requiredDisclosures: interests.map(boldDisclosure),
+      // « sur Binance », « selon CoinGecko » : produites par le registre que le
+      // gate relira. La consigne et le controle ne peuvent pas diverger.
+      requiredAttributions: attributionsExigees(gate.accepted),
       mode: this.mode,
       // Les observations effectivement citees par les claims retenues. Sans
       // cette matiere, le Redacteur devait expliquer une methode qu'il n'avait

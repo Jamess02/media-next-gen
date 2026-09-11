@@ -79,6 +79,17 @@ Ta tache :
    n'a ni recoupement, ni mise en perspective, et pousse l'etape suivante a
    fabriquer des affirmations pour remplir. Mieux vaut ecarter en aval que
    manquer de matiere en amont.
+6. DONNEES DE MARCHE (types \`donnee-de-marche\` et \`signal-de-marche\`). Leur
+   resume dit leur perimetre, et ce perimetre decide de ce qu'elles peuvent
+   etablir :
+   - Binance est une plateforme unique : ses chiffres valent « sur Binance »,
+     jamais pour le marche entier. Pour un chiffre du marche global, prefere
+     CoinGecko, un agregat multi-plateformes, quand il est disponible.
+   - CoinGecko publie un agregat calcule selon sa methodologie : il
+     s'attribue, « selon CoinGecko ».
+   - Un \`signal-de-marche\` (Yahoo Finance) ne se cite JAMAIS. Retiens-le
+     seulement comme contexte de pre-verification, motif « signal » : il ne
+     peut fonder aucune claim.
 
 Le champ \`url\` de tes sorties doit reprendre EXACTEMENT une url fournie en
 entree. N'en invente aucune, n'en reformule aucune.

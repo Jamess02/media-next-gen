@@ -11,6 +11,14 @@
  * declarer au lecteur au lieu de laisser croire a une couverture complete.
  */
 
+import { join } from "node:path";
+
+import { adaptateurDeMarche } from "../marche/adaptateur.js";
+import { connecteurBinance } from "../marche/binance.js";
+import { connecteurCoinGecko } from "../marche/coingecko.js";
+import { INSTRUMENTS } from "../marche/instruments.js";
+import type { ConnecteurDeMarche } from "../marche/types.js";
+import { connecteurYahoo } from "../marche/yahoo.js";
 import {
   DECLARED_INTERESTS,
   interestCaveat,
@@ -61,6 +69,86 @@ function interet(domain: string): DeclaredInterest {
 export interface SkippedSource {
   id: string;
   reason: string;
+}
+
+/**
+ * Duree de cache des donnees de marche, depuis `MARCHE_CACHE_TTL_MINUTES`.
+ *
+ * Absente ou absurde : `undefined`, et chaque connecteur garde sa duree par
+ * defaut — sept jours pour une bougie Binance close, un jour pour CoinGecko,
+ * six heures pour Yahoo, qui ajuste ses series. Une valeur illisible n'est pas
+ * devinee : un cache de duree inventee est un cache dont on ignore l'etat.
+ */
+export function ttlDepuisEnv(env: NodeJS.ProcessEnv): number | undefined {
+  const brut = env["MARCHE_CACHE_TTL_MINUTES"];
+  if (brut === undefined || brut.trim().length === 0) return undefined;
+  const minutes = Number(brut);
+  if (!Number.isFinite(minutes) || minutes < 0) return undefined;
+  return minutes * 60_000;
+}
+
+/** Age maximal admis : les cryptoactifs cotent chaque jour, les places ferment le week-end. */
+const AGE_MAX_CRYPTO_MS = 2 * 86_400_000;
+const AGE_MAX_BOURSE_MS = 6 * 86_400_000;
+
+const AGE_MAX_PAR_CONNECTEUR: Readonly<Record<string, number>> = {
+  binance: AGE_MAX_CRYPTO_MS,
+  coingecko: AGE_MAX_CRYPTO_MS,
+  yahoo: AGE_MAX_BOURSE_MS,
+};
+
+/** Un adaptateur par instrument que le connecteur sait servir. */
+function adaptateursDe(connecteur: ConnecteurDeMarche, ageMaxMs: number) {
+  return INSTRUMENTS.filter((i) => connecteur.couvre(i)).map((i) =>
+    adaptateurDeMarche(connecteur, i, { ageMaxMs }),
+  );
+}
+
+/**
+ * Connecteurs de marche disponibles, et ceux qu'une clef manquante ecarte.
+ *
+ * SEULE facon de les construire : le catalogue en tire ses adaptateurs, la
+ * sonde de sante (`npm run dev -- marches`) les interroge. Deux constructions
+ * separees finiraient par diverger — dossier de cache, duree, clef — et la
+ * sonde dirait « OK » d'une source que le pipeline n'interroge pas ainsi.
+ *
+ * Aucune entree/sortie ici : un connecteur ne touche le disque et le reseau
+ * qu'a sa premiere requete.
+ */
+export function connecteursDeMarche(env: NodeJS.ProcessEnv = process.env): {
+  connecteurs: ConnecteurDeMarche[];
+  ecartes: SkippedSource[];
+} {
+  const ttlMs = ttlDepuisEnv(env);
+  const commun = {
+    dossier: join(process.cwd(), ".cache", "marche"),
+    ...(ttlMs === undefined ? {} : { ttlMs }),
+  };
+  const connecteurs: ConnecteurDeMarche[] = [];
+  const ecartes: SkippedSource[] = [];
+
+  // Binance : tier 1 pour sa plateforme, « sur Binance » impose par le gate.
+  connecteurs.push(connecteurBinance(commun));
+
+  // CoinGecko : l'agregat multi-plateformes, pour tout chiffre du marche global.
+  const clef = env["COINGECKO_API_KEY"];
+  if (clef !== undefined && clef.trim().length > 0) {
+    connecteurs.push(connecteurCoinGecko({ ...commun, apiKey: clef.trim() }));
+  } else {
+    ecartes.push({
+      id: "coingecko:agregats",
+      reason:
+        "COINGECKO_API_KEY absente de l'environnement : aucun chiffre du marche " +
+        "GLOBAL des cryptoactifs n'est disponible, et Binance ne peut pas en tenir " +
+        "lieu (plateforme unique). Clef gratuite du plan Demo sur " +
+        "https://www.coingecko.com/en/api — a placer dans .env, jamais dans le code.",
+    });
+  }
+
+  // Yahoo : SIGNAL de pre-verification, jamais cite (option (b), native).
+  connecteurs.push(connecteurYahoo(commun));
+
+  return { connecteurs, ecartes };
 }
 
 export interface SourceCatalogue {
@@ -262,6 +350,23 @@ export function buildSourceCatalogue(
         "placer dans .env, jamais dans le code.",
     });
   }
+
+  // --- Donnees de marche --------------------------------------------------
+  //
+  // Interrogees SEULEMENT si le sujet les appelle (`pertinent`) : un article
+  // sur l'Iran ne consomme ni le poids Binance, ni les credits CoinGecko.
+  // Voir docs/sources-marche.md pour ce que chacune ne permet PAS d'affirmer.
+  //
+  // Un connecteur par fournisseur, partage par ses adaptateurs : c'est ce qui
+  // fait respecter l'espacement et le disjoncteur quand la passerelle lance
+  // plusieurs instruments en parallele.
+  const marche = connecteursDeMarche(env);
+  for (const connecteur of marche.connecteurs) {
+    adapters.push(
+      ...adaptateursDe(connecteur, AGE_MAX_PAR_CONNECTEUR[connecteur.id] ?? AGE_MAX_BOURSE_MS),
+    );
+  }
+  skipped.push(...marche.ecartes);
 
   // --- Sources ecartees pour raisons externes -----------------------------
   // Documentees ici plutot que supprimees : le lecteur du code doit savoir

@@ -67,6 +67,12 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   },
   { domain: "impots.gouv.fr", tier: 1, name: "DGFiP" },
   { domain: "economie.gouv.fr", tier: 1, name: "Ministere de l'Economie" },
+  // Tier 1 par DECISION DE L'EDITEUR (2026-09-11) : Binance est l'emetteur de
+  // ses propres cotations. Le tier ne dit pas ce qu'elles couvrent — une seule
+  // plateforme — et c'est `protocol/sources-de-marche.ts` qui impose de le
+  // dire (« sur Binance »). Seul l'hote de donnees publiques est concerne : un
+  // billet de binance.com reste hors registre, donc tier 3.
+  { domain: "data-api.binance.vision", tier: 1, name: "Binance (donnees de marche publiques)" },
 
   // --- Tier 2 : donnee publique agregee et sourcee -------------------------
   // Cas particulier §4 : GDELT est tier 2, mais "GDELT Cloud" est tier 3.
@@ -76,6 +82,9 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "radar.cloudflare.com", tier: 2, name: "Cloudflare Radar" },
   { domain: "l0g.fr", tier: 2, name: "l0g.fr" },
   { domain: "opensanctions.org", tier: 2, name: "OpenSanctions" },
+  // Agregat multi-plateformes, methodologie publiee : la definition meme du
+  // tier 2. L'attribution « selon CoinGecko » est exigee a part.
+  { domain: "api.coingecko.com", tier: 2, name: "CoinGecko (agregat multi-plateformes)" },
 
   // --- Tier 3 : sources secondaires ---------------------------------------
   { domain: "gnews.io", tier: 3, name: "GNews" },
@@ -89,6 +98,10 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   // exigee par une regle bloquante (protocol/interests.ts).
   { domain: "castleisland.vc", tier: 3, name: "Castle Island Ventures" },
   { domain: "galaxy.com", tier: 3, name: "Galaxy Digital" },
+  // Agregateur grand public, sans engagement de service. Tier 3, et au-dela du
+  // tier : un SIGNAL qui ne se cite jamais (protocol/sources-de-marche.ts).
+  { domain: "query1.finance.yahoo.com", tier: 3, name: "Yahoo Finance (signal)" },
+  { domain: "query2.finance.yahoo.com", tier: 3, name: "Yahoo Finance (signal)" },
 
   // --- Tier 5 : contexte interne ------------------------------------------
   { domain: "media-next-gen.local", tier: 5, name: "Contexte interne" },

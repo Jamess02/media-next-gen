@@ -5,6 +5,7 @@
  *   npm run dev -- --real-sources "inflation en zone euro"
  *   npm run dev -- --provider=gemini --real-sources "sanctions et flux energetiques"
  *   npm run dev -- revise <article-id> --type=factuelle "Chiffre corrige : ..."
+ *   npm run dev -- marches      (sonde des sources de marche, sans appel au modele)
  *
  * Le mode `mock` est le defaut et le reste tant qu'aucune clef n'est presente.
  * Basculer en `live` doit etre un acte explicite : un pipeline qui appellerait
@@ -18,6 +19,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PublicationRefused } from "./agents/editeur.js";
+import { rapportDeSante, santeDesMarches } from "./marche/sante.js";
 import { drapeauRefuse, ressembleAUneCommande } from "./securite/commande.js";
 import {
   enquetesDepuisArticles,
@@ -50,7 +52,7 @@ import {
   TAILLE_VAGUE,
   executerVague,
 } from "./planification/vagues.js";
-import { buildSourceCatalogue } from "./sources/catalogue.js";
+import { buildSourceCatalogue, connecteursDeMarche } from "./sources/catalogue.js";
 import { MOCK_ADAPTERS } from "./sources/mock-sources.js";
 import type { SourceAdapter } from "./sources/types.js";
 
@@ -96,6 +98,7 @@ type Command =
   | { kind: "validate"; articleId: string; reviewer: string; note?: string }
   | VagueCommand
   | { kind: "verify-journal" }
+  | { kind: "sante-marches" }
   | { kind: "build-site"; drafts: boolean }
   | { kind: "preview"; port: number; drafts: boolean }
   | { kind: "studio"; port: number }
@@ -171,6 +174,7 @@ function parseArgs(argv: readonly string[]): Command {
     };
   }
   if (positional[0] === "journal") return { kind: "verify-journal" };
+  if (positional[0] === "marches") return { kind: "sante-marches" };
   if (positional[0] === "site") return { kind: "build-site", drafts };
   if (positional[0] === "preview") {
     const port = Number(positional[1]);
@@ -691,6 +695,19 @@ async function vagueCommand(command: VagueCommand): Promise<void> {
   }
 }
 
+/**
+ * Sonde des sources de marche. Une requete legere par fournisseur, AUCUN appel
+ * au modele : elle ne coute que du debit, jamais du quota LLM. Les connecteurs
+ * sont ceux du catalogue — meme cache, meme etat de disjoncteur : pendant un
+ * bannissement Binance, la sonde le dit sans rappeler Binance.
+ */
+async function santeMarchesCommand(): Promise<void> {
+  const { connecteurs, ecartes } = connecteursDeMarche();
+  const etats = await santeDesMarches(connecteurs);
+  console.log(rapportDeSante(etats, ecartes));
+  if (etats.some((e) => !e.ok)) process.exitCode = 1;
+}
+
 async function studioCommand(port: number): Promise<void> {
   const studio = await startStudio({ port });
   console.log(`STUDIO — interface de pilotage sur ${studio.url}`);
@@ -722,6 +739,8 @@ async function main(): Promise<void> {
       return vagueCommand(command);
     case "verify-journal":
       return verifyJournalCommand();
+    case "sante-marches":
+      return santeMarchesCommand();
     case "build-site":
       return buildSiteCommand(command.drafts);
     case "preview":

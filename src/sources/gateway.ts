@@ -31,6 +31,22 @@ export interface CollectionResult {
   failures: ReadonlyArray<{ adapterId: string; error: string }>;
 }
 
+/**
+ * Avis de pertinence d'un adaptateur, en ECHEC OUVERT.
+ *
+ * Un filtre qui leve est un filtre bogue ; s'il ecartait la source, elle
+ * disparaitrait sans trace — l'echec muet que cette passerelle existe pour
+ * empecher. On prefere une requete de trop, dont l'issue sera journalisee.
+ */
+export function estPertinent(adapter: SourceAdapter, query: SourceQuery): boolean {
+  if (adapter.pertinent === undefined) return true;
+  try {
+    return adapter.pertinent(query);
+  } catch {
+    return true;
+  }
+}
+
 export class SourceGateway {
   constructor(
     private readonly adapters: readonly SourceAdapter[],
@@ -45,18 +61,23 @@ export class SourceGateway {
     const unregisteredUrls: string[] = [];
     const failures: Array<{ adapterId: string; error: string }> = [];
 
+    // Une source hors sujet n'est ni appelee ni journalisee : elle n'a pas ete
+    // consultee, et le §9.4 trace les acces, pas les abstentions. Ce n'est pas
+    // une source muette au sens d'EP-003 — elle n'avait rien a dire ici.
+    const actifs = this.adapters.filter((adapter) => estPertinent(adapter, query));
+
     // Les adaptateurs sont independants : un fournisseur lent ne doit pas
     // retarder les autres. `allSettled` garantit qu'un echec isole ne fait pas
     // tomber la collecte entiere — une source manquante se documente (§EP-003).
     const outcomes = await Promise.allSettled(
-      this.adapters.map(async (adapter) => ({
+      actifs.map(async (adapter) => ({
         adapter,
         outcome: await adapter.fetch(query),
       })),
     );
 
     for (const [index, settled] of outcomes.entries()) {
-      const adapter = this.adapters[index];
+      const adapter = actifs[index];
       if (adapter === undefined) continue;
 
       if (settled.status === "rejected") {

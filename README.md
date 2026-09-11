@@ -189,6 +189,11 @@ Réserve sur Groq : ses 8 000 tokens/minute incluent la **réservation** de sort
 | [Fed — bilan (WALCL)](src/sources/fred.ts) | 1 | `FRED_API_KEY` | Les **chiffres** du H.4.1, via FRED — le flux `h41.xml` ne publie que des avis de changement de méthode (voir plus bas) |
 | [Al Jazeera + Haaretz](src/sources/rss.ts) | **3** | non | Premières sources **secondaires** ; mention de statut portée dans chaque observation |
 | [Castle Island Ventures](src/sources/rss.ts) | **3** | non | Acteur **investi** dans ce qu'il commente : divulgation d'intérêt obligatoire en gras, imposée par une règle bloquante |
+| [Binance](src/marche/binance.ts) | 1 | non | **Une seule plateforme** : « sur Binance » exigé par une règle bloquante ; cotation en **USDT, pas en dollars** ; bannissement mémorisé sur disque |
+| [CoinGecko](src/marche/coingecko.ts) | 2 | `COINGECKO_API_KEY` | Agrégat : « selon CoinGecko » exigé, l'attribution étant aussi imposée par le plan Demo ; point de minuit UTC horodaté dans la donnée |
+| [Yahoo Finance](src/marche/yahoo.ts) | **3** | non | **Signal, jamais cité** : retiré des citations par le fact-checker, bloqué au gate ; schéma versionné, échec bruyant s'il change |
+
+**Sur les données de marché.** Binance, CoinGecko et Yahoo ne sont interrogés que si le sujet les appelle, tous au même instant de référence : minuit UTC. Ce que chacun ne permet **pas** d'affirmer est détaillé dans [docs/sources-marche.md](docs/sources-marche.md). `npm run dev -- marches` sonde les trois sans appeler de modèle.
 
 **Sur les deux titres de presse — c'est une décision éditoriale, pas un branchement.** Ils couvrent les mêmes événements depuis des lignes éditoriales documentées et opposées. Brancher un seul importerait son cadrage sans contrepoids ; les brancher ensemble rend testable ce que le §5.2 demande à l'Analyste — comparer le narratif médiatique aux données observables. **Retirer l'un sans l'autre annulerait cette propriété.**
 

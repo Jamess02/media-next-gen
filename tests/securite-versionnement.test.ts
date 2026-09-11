@@ -64,6 +64,17 @@ describe("exclusions critiques du .gitignore", () => {
     expect(brut).toMatch(/decision de l'editeur/i);
   });
 
+  it("exclut le cache local des donnees de marche, et dit pourquoi", async () => {
+    // Le cache contient des reponses d'API INTEGRALES. Les versionner
+    // reviendrait a redistribuer publiquement des donnees de fournisseurs dont
+    // les conditions l'encadrent (CoinGecko notamment), et a publier l'etat du
+    // disjoncteur — un bannissement en cours — comme s'il s'agissait de code.
+    const lignes = await gitignore();
+    expect(lignes).toContain(".cache/");
+    const brut = await readFile(join(RACINE, ".gitignore"), "utf8");
+    expect(brut).toMatch(/redistribu/i);
+  });
+
   it("n'exclut PAS le dossier audit/ en bloc", async () => {
     // Ce qui reste vrai de l'ancien test : une exclusion en bloc masquerait
     // tout ce qui y serait ajoute demain, sans qu'on l'ait decide.

@@ -161,6 +161,28 @@ Le champ \`mode\` vaut \`constat\` ou \`prospectif\`.
   Un scenario dont aucune observation ne pourrait montrer qu'il est faux n'a
   pas sa place : il n'est pas contestable, donc pas publiable (§0).
 
+DONNEES DE MARCHE — la formule et l'unite font partie du fait.
+
+Les observations de type \`donnee-de-marche\` disent leur perimetre, et le gate
+REFUSE une claim qui ne le respecte pas :
+- Binance est une plateforme unique. Le texte de la claim ecrit « sur Binance »
+  (« le bitcoin a cloture a 76 568,72 USDT sur Binance »), jamais « le prix du
+  bitcoin » tout court. Son unite est l'USDT, un stablecoin : ce n'est
+  pas le dollar. \`figure.unit\` vaut "USDT", jamais "dollars" ni "$".
+- CoinGecko publie un agregat, en dollars, calcule selon sa methodologie. Le
+  texte de la claim ecrit « selon CoinGecko ». C'est la source d'un chiffre du
+  marche global.
+- Ces releves datent tous de minuit UTC : un chiffre Binance et un chiffre
+  CoinGecko du meme releve se comparent ; un chiffre d'une autre date, non
+  (EP-006).
+- Un \`signal-de-marche\` (Yahoo Finance) ne figure JAMAIS dans \`sources\`. Il
+  indique ou verifier ; la claim cite l'emetteur d'origine s'il a ete collecte,
+  et n'existe pas sinon. Le pipeline rejette d'office une claim adossee au
+  seul signal.
+- Aucun de ces chiffres ne se lit comme une invitation a acheter, vendre ou
+  conserver (EP-007) : « a recule de 2 % sur Binance » est un constat, « un
+  point d'entree » est un conseil.
+
 Contraintes :
 - Au plus 3 claims (§3). Si le materiau en porte davantage, garde les 3 plus
   structurantes et ignore le reste.

@@ -28,6 +28,19 @@ audit/raw/
 # entree.
 audit/journal.jsonl
 
+# Cache local des donnees de marche (src/marche/) : reponses INTEGRALES de
+# Binance, CoinGecko et Yahoo, plus l'etat du disjoncteur de chaque fournisseur.
+#
+# Deux raisons de ne jamais le versionner. Les conditions de ces fournisseurs
+# encadrent la redistribution de leurs donnees : un depot public en serait une.
+# Et l'etat du disjoncteur memorise un bannissement en cours (HTTP 418) : il
+# decrit notre situation vis-a-vis d'un fournisseur, pas le code.
+#
+# Le supprimer est sans danger pour les donnees — elles se reinterrogent — mais
+# PAS pendant un bannissement : l'etat perdu, la collecte suivante relancerait
+# les requetes que Binance sanctionne par un bannissement plus long.
+.cache/
+
 # Sortie du pipeline : espace de TRAVAIL. Un article y est un brouillon, que
 # personne n'a encore relu.
 #

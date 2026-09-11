@@ -33,6 +33,13 @@ import {
 } from "./interests.js";
 import { figureUnits } from "./figures.js";
 import type { Article, Claim } from "./schema.js";
+import {
+  emetteurAttendu,
+  formuleDAttribution,
+  nommeLaSource,
+  sourceDeMarche,
+  type SourceDeMarche,
+} from "./sources-de-marche.js";
 
 export type Severity = "blocking" | "warning";
 
@@ -290,6 +297,167 @@ function ruleInterestDisclosed(article: Article): Violation[] {
         `${boldDisclosure(interest)}`,
       path: "body",
     }));
+}
+
+/* -------------------------------------------------------------------------
+ * Donnees de marche : perimetre, attribution, usage, cotation
+ * ---------------------------------------------------------------------- */
+
+/** Sources de marche CITABLES d'une claim, une fois chacune (Yahoo a deux hotes). */
+function sourcesDeMarcheCitables(claim: Claim): SourceDeMarche[] {
+  const vues = new Map<string, SourceDeMarche>();
+  for (const s of claim.sources) {
+    const m = sourceDeMarche(s.url);
+    if (m !== null && m.usage === "citable") vues.set(m.nom, m);
+  }
+  return [...vues.values()];
+}
+
+/** La regle dit POURQUOI le nom est exige : perimetre partiel, ou agregat a attribuer. */
+function regleDeNommage(source: SourceDeMarche): { rule: string; clause: string } {
+  return source.perimetre === "plateforme-unique"
+    ? { rule: "PLATEFORME_NON_NOMMEE", clause: "§4 / EP-006" }
+    : { rule: "AGREGAT_NON_ATTRIBUE", clause: "§4 / EP-002" };
+}
+
+/**
+ * Une donnee de marche porte le nom de qui la produit : « sur Binance »,
+ * « selon CoinGecko ».
+ *
+ * DEUX RAISONS, UNE REGLE. Binance est tier 1 pour ses propres cotations, mais
+ * une plateforme parmi d'autres : sans son nom, « le bitcoin a cloture a 76 568
+ * USDT » affirme un prix du marche que Binance ne mesure pas. CoinGecko publie
+ * un agregat qui depend de sa methodologie, et son plan Demo exige
+ * l'attribution a cote de la donnee. Le registre porte la raison ; la regle
+ * l'applique.
+ *
+ * DEUX SURFACES. Le texte de la claim, qui va dans la fiche de preuve ; et le
+ * PARAGRAPHE du corps qui la reference, parce que c'est lui que le lecteur lit
+ * en continu. Le paragraphe, et non la phrase : exiger le nom dans chaque
+ * phrase interdirait « Les chiffres qui suivent sont ceux de Binance. Le
+ * bitcoin y a recule. » — une ecriture correcte, et un detecteur qui la
+ * refuserait finirait desactive.
+ */
+function ruleSourcesDeMarcheNommees(article: Article): Violation[] {
+  const violations: Violation[] = [];
+
+  article.claims.forEach((claim, i) => {
+    for (const source of sourcesDeMarcheCitables(claim)) {
+      if (nommeLaSource(claim.text, source)) continue;
+      violations.push({
+        ...regleDeNommage(source),
+        severity: "blocking",
+        message:
+          `La claim "${claim.id}" s'appuie sur ${source.nom} sans le nommer. ` +
+          `Ecrire « ${formuleDAttribution(source)} » : ${source.raison}`,
+        path: `claims[${i}].text`,
+      });
+    }
+  });
+
+  const parId = new Map(article.claims.map((c) => [c.id, c]));
+  const dejaSignale = new Set<string>();
+  for (const paragraphe of article.body.split(/\n\s*\n/)) {
+    for (const id of referencedClaimIds(paragraphe)) {
+      const claim = parId.get(id);
+      if (claim === undefined) continue;
+      for (const source of sourcesDeMarcheCitables(claim)) {
+        const cle = `${id}|${source.nom}`;
+        if (nommeLaSource(paragraphe, source) || dejaSignale.has(cle)) continue;
+        dejaSignale.add(cle);
+        violations.push({
+          ...regleDeNommage(source),
+          severity: "blocking",
+          message:
+            `Le paragraphe qui reference [[${id}]] ne nomme pas ${source.nom}. ` +
+            `Le lecteur lit le corps, pas la fiche de preuve : ecrire ` +
+            `« ${formuleDAttribution(source)} » dans ce paragraphe. ${source.raison}`,
+          path: "body",
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Un SIGNAL ne se cite jamais (§4 / EP-001).
+ *
+ * Yahoo Finance relaie des donnees d'autres emetteurs, sans engagement de
+ * service ni methodologie publiee. Il sert a reperer et a pre-verifier ; la
+ * source citee est l'emetteur d'origine — Euronext pour le CAC 40.
+ *
+ * Le fact-checker retire deja les signaux des citations en amont, et rejette
+ * une claim qui ne reposait que sur eux. Cette regle est la derniere ligne : un
+ * signal qui arrive jusqu'ici a emprunte un chemin qui contourne ce retrait.
+ */
+function ruleSignalNonCite(article: Article): Violation[] {
+  return article.claims.flatMap((claim, i) =>
+    claim.sources.flatMap((s) => {
+      const source = sourceDeMarche(s.url);
+      if (source === null || source.usage !== "signal") return [];
+      const emetteur = emetteurAttendu(s.url);
+      return [
+        {
+          rule: "SOURCE_SIGNAL_CITEE",
+          clause: "§4 / EP-001",
+          severity: "blocking" as const,
+          message:
+            `La claim "${claim.id}" cite ${source.nom}, un signal de ` +
+            `pre-verification qui ne se cite jamais : ${source.raison} Remonter a ` +
+            `l'emetteur d'origine` +
+            (emetteur === null ? "" : ` (${emetteur.nom}, ${emetteur.domaine})`) +
+            ` et citer celui-ci.`,
+          path: `claims[${i}].sources`,
+        },
+      ];
+    }),
+  );
+}
+
+/** « 76 568 $ », « 76 568 dollars », « $76,568 », « USD 76 568 » — mais pas « USDT ». */
+const MONTANT_EN_DOLLARS = /\d[\d\s  .,]*\s*(?:\$|dollars?\b|usd\b)|\$\s*\d|\busd\s*\d/i;
+const UNITE_EN_DOLLARS = /\$|dollar|\busd\b/i;
+
+/**
+ * Une cotation en stablecoin n'est pas un montant en dollars (EP-005 / EP-006).
+ *
+ * Binance cote la paire BTC/USDT. L'USDT vise la parite avec le dollar ; il ne
+ * l'est pas, et l'ecart s'est deja creuse. Ecrire « 76 568 dollars » pour une
+ * cotation de 76 568 USDT change l'unite de la mesure — une erreur que ni le
+ * tier, ni le nommage de la plateforme ne rattrapent.
+ *
+ * Exception : une claim qui cite AUSSI une source cotee en dollars (CoinGecko)
+ * peut porter un montant en dollars — il est alors adosse a cette source.
+ */
+function ruleCotationNonTravestie(article: Article): Violation[] {
+  return article.claims.flatMap((claim, i) => {
+    const marche = claim.sources
+      .map((s) => sourceDeMarche(s.url))
+      .filter((m): m is SourceDeMarche => m !== null && m.usage === "citable");
+    const cotee = marche.find((m) => m.cotation !== undefined);
+    if (cotee === undefined) return [];
+    if (marche.some((m) => m.cotation === undefined)) return [];
+
+    const unite = claim.figure?.unit ?? "";
+    const figureEnDollars = UNITE_EN_DOLLARS.test(unite) && !/usdt/i.test(unite);
+    if (!figureEnDollars && !MONTANT_EN_DOLLARS.test(claim.text)) return [];
+
+    return [
+      {
+        rule: "USDT_PRESENTE_EN_DOLLARS",
+        clause: "EP-005 / EP-006",
+        severity: "blocking" as const,
+        message:
+          `La claim "${claim.id}" exprime en dollars une donnee cotee en ` +
+          `${cotee.cotation} ${formuleDAttribution(cotee)}. L'${cotee.cotation} est ` +
+          `un stablecoin, pas le dollar americain : ecrire « ${cotee.cotation} », ` +
+          `ou s'appuyer sur une source cotee en dollars.`,
+        path: figureEnDollars ? `claims[${i}].figure.unit` : `claims[${i}].text`,
+      },
+    ];
+  });
 }
 
 /** §7 — le corps doit referencer chaque claim, et ne referencer que des claims reelles. */
@@ -1153,6 +1321,9 @@ const DOCUMENT_RULES = [
   ruleFactContradictedByOwnText,
   ruleWeakTierDisclosure,
   ruleInterestDisclosed,
+  ruleSourcesDeMarcheNommees,
+  ruleSignalNonCite,
+  ruleCotationNonTravestie,
   ruleBodyReferences,
   ruleBodyIsRedacted,
   ruleEnqueteFormat,

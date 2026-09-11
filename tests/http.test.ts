@@ -59,6 +59,27 @@ describe("fetchJson", () => {
     );
   });
 
+  it("marque TRANSITOIRES le delai depasse et la panne reseau, et eux seuls", async () => {
+    // Un appelant qui reessaie doit savoir quoi reessayer. Reessayer une URL
+    // refusee ou un 404 ne changerait rien ; reessayer apres un delai depasse
+    // est souvent tout ce qu'il faut.
+    const transitoire = async (): Promise<boolean> => {
+      try {
+        await fetchJson("https://example.org/a", { ...OPTIONS, timeoutMs: 500 });
+      } catch (e) {
+        return (e as SourceFetchError).transitoire;
+      }
+      throw new Error("aurait du lever");
+    };
+
+    stubFetchFailure("TimeoutError", "The operation was aborted");
+    expect(await transitoire()).toBe(true);
+    stubFetchFailure("TypeError", "fetch failed");
+    expect(await transitoire()).toBe(true);
+    stubFetch(null, { ok: false, status: 404 });
+    expect(await transitoire()).toBe(false);
+  });
+
   it("expose l'URL interrogee sur l'erreur", async () => {
     stubFetch(null, { ok: false, status: 404 });
     try {

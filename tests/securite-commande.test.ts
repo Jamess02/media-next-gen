@@ -39,6 +39,11 @@ describe("ce qui ressemble a une commande est refuse, avec la bonne suggestion",
   it("un mot compose qui contient un nom de commande", () => {
     expect(ressembleAUneCommande("verifier-journal")).not.toBeNull();
   });
+
+  it("une faute de frappe sur la sonde des sources de marche", () => {
+    // Sans cette entree, « marchse » lancerait un article sur « marchse ».
+    expect(ressembleAUneCommande("marchse")).toBe("marches");
+  });
 });
 
 describe("un vrai sujet passe, meme court", () => {

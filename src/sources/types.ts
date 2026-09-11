@@ -33,5 +33,14 @@ export interface SourceAdapter {
   readonly id: string;
   /** Ce que la source couvre reellement. Sert aux notes methodologiques. */
   readonly describes: string;
+  /**
+   * La source concerne-t-elle ce sujet ? Absent : toujours interrogee.
+   *
+   * Optionnel, parce que les series macro sont interrogees a chaque article
+   * par choix. Les donnees de marche, elles, ne le sont que si le sujet les
+   * appelle : un article sur l'Iran n'a pas a consommer le quota CoinGecko, ni
+   * a porter la mention « source indisponible » d'une source hors sujet.
+   */
+  pertinent?(query: SourceQuery): boolean;
   fetch(query: SourceQuery): Promise<FetchOutcome>;
 }

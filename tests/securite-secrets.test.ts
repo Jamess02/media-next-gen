@@ -74,11 +74,19 @@ describe("detection — formes de clefs", () => {
       ["sk-abcdefghijklmnopqrstuvwxyz012345", "openai"], // secret-autorise: gabarit de test, valeur fictive
       ["AIzaSyAbcdefghijklmnopqrstuvwxyz0123456", "google"], // secret-autorise: gabarit de test, valeur fictive
       ["ghp_abcdefghijklmnopqrstuvwxyz0123456789", "github"], // secret-autorise: gabarit de test, valeur fictive
+      ["CG-AbCdEfGhIjKlMnOpQrStUvWx", "coingecko"], // secret-autorise: gabarit de test, valeur fictive
     ];
     for (const [valeur, forme] of cas) {
       const t = chercherSecrets("x.ts", `const K = "${valeur}";`);
       expect(t.map((x) => x.forme), valeur).toContain(forme);
     }
+  });
+
+  it("ne confond pas le prefixe CoinGecko avec un mot ordinaire", () => {
+    // Le gabarit exige vingt caracteres apres « CG- » : un code court ou un
+    // nom compose ne doit pas faire hurler le detecteur.
+    const t = chercherSecrets("x.md", "Le groupe CG-Paris et la norme CG-40 ne sont pas des clefs.");
+    expect(t).toEqual([]);
   });
 
   it("ne signale JAMAIS la valeur du secret dans son rapport", () => {

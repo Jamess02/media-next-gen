@@ -33,8 +33,15 @@ import {
   MIN_PUBLISHABLE_EVIDENCE_LEVEL,
   type ClaimType,
   type EvidenceLevel,
+  type SourceTier,
 } from "../protocol/constants.js";
 import type { Claim } from "../protocol/schema.js";
+import {
+  emetteurAttendu,
+  formuleDAttribution,
+  sourceDeMarche,
+  type PerimetreDeMarche,
+} from "../protocol/sources-de-marche.js";
 import { classifySource } from "../sources/registry.js";
 import { Agent, asJson } from "./base.js";
 import type { AnalysteOutput } from "./analyste.js";
@@ -108,6 +115,20 @@ Pour chaque claim candidate, verifie :
 3. CONTRADICTIONS. Si deux sources se contredisent, liste-le dans
    \`conflicts_found\`, meme si tu acceptes la claim par ailleurs.
 
+4. NATURE DES SOURCES. \`nature_des_sources\` te donne, pour chaque URL, ce que
+   le registre sait d'elle. Elle est derivee du domaine : ne la conteste pas.
+   - \`secondaire\` avec \`remontee_requise\` : une reprise ne suffit pas a
+     etablir un \`fait\`. Une claim typee \`fait\` sans aucune source primaire
+     n'a pas ete remontee a son emetteur : abaisse-la en \`inférence\` ou en
+     \`estimation\`, ou rejette-la.
+   - \`perimetre: plateforme-unique\` : la donnee ne vaut que pour cette
+     plateforme. Une claim qui en tire un prix du marche entier depasse sa
+     source : reformule-la avec la formule donnee dans \`attribution\`.
+   - \`perimetre: agrege\` : la valeur depend de la methodologie de
+     l'agregateur, et la claim doit l'attribuer (\`attribution\`).
+   - Les signaux de pre-verification (Yahoo Finance) ont deja ete retires par
+     le pipeline : tu n'en verras aucun, et aucun ne vaut preuve.
+
 Regles absolues :
 - Tu ne peux JAMAIS remonter un niveau de preuve ni promouvoir une claim en
   \`fait\`. Le pipeline borne tes sorties dans ce sens : proposer une remontee
@@ -128,6 +149,9 @@ export class FactChecker extends Agent<FactCheckerInput, FactCheckerOutput> {
   protected buildUserMessage(input: FactCheckerInput): string {
     return asJson({
       claims_candidates: input.candidates,
+      // Calculee par le code, pas par le modele : c'est le registre qui sait
+      // qu'une source est secondaire, pas la claim qui la cite.
+      nature_des_sources: natureDesSources(input.candidates),
       reserves_de_publication: input.publicationCaveats,
       ...(input.reformulationPass
         ? {
@@ -185,6 +209,126 @@ export function reconcileTiers(candidates: AnalysteOutput["candidates"]): {
   }));
 
   return { candidates: reconciled, corrections };
+}
+
+/* -------------------------------------------------------------------------
+ * Temps 1 bis — usage des sources : un signal n'est jamais une preuve
+ * ---------------------------------------------------------------------- */
+
+export interface UsagesAppliques {
+  /** Candidates debarrassees de leurs signaux ; celles qui n'avaient qu'eux sont retirees. */
+  candidates: AnalysteOutput["candidates"];
+  /** Rejets d'office, au format de `GateDecision.excluded`. */
+  exclues: string[];
+  /** Signaux retires des citations, au format de `GateDecision.adjustments`. */
+  ajustements: string[];
+}
+
+/**
+ * Applique l'USAGE de chaque source, avant tout jugement du modele.
+ *
+ * Un signal (Yahoo Finance) sert a pre-verifier : il indique qu'un chiffre
+ * existe et ou le chercher. Il ne prouve rien — la preuve est l'emetteur
+ * d'origine. D'ou deux traitements, tous deux deterministes :
+ *
+ *  - une claim qui a AUSSI une autre source perd le signal de ses citations :
+ *    il a servi, il ne figurera pas comme preuve ;
+ *  - une claim qui ne reposait QUE sur des signaux est rejetee d'office, avec
+ *    l'emetteur qu'il faudrait citer. C'est la « remontee a la source
+ *    primaire » que le signal reclamait, et qui n'a pas ete faite.
+ *
+ * Place AVANT l'appel au fact-checker : lui faire juger une claim deja
+ * disqualifiee couterait un appel pour un verdict connu d'avance — et lui
+ * laisserait la possibilite de la garder.
+ */
+export function appliquerUsagesDesSources(
+  candidates: AnalysteOutput["candidates"],
+): UsagesAppliques {
+  const gardees: AnalysteOutput["candidates"] = [];
+  const exclues: string[] = [];
+  const ajustements: string[] = [];
+
+  for (const candidate of candidates) {
+    const estSignal = (url: string): boolean => sourceDeMarche(url)?.usage === "signal";
+    const signaux = candidate.sources.filter((s) => estSignal(s.url));
+    if (signaux.length === 0) {
+      gardees.push(candidate);
+      continue;
+    }
+
+    const noms = [...new Set(signaux.map((s) => sourceDeMarche(s.url)?.nom))].join(", ");
+
+    if (signaux.length === candidate.sources.length) {
+      const emetteurs = [
+        ...new Set(
+          signaux
+            .map((s) => emetteurAttendu(s.url))
+            .filter((e) => e !== null)
+            .map((e) => `${e.nom} (${e.domaine})`),
+        ),
+      ];
+      exclues.push(
+        `${candidate.id} : rejetee — adossee au seul signal ${noms}, qui sert a ` +
+          `pre-verifier et ne prouve rien (§4). Remontee a l'emetteur d'origine ` +
+          `requise` +
+          (emetteurs.length > 0 ? ` : ${emetteurs.join(", ")}.` : "."),
+      );
+      continue;
+    }
+
+    ajustements.push(
+      `${candidate.id} : ${noms} retire des citations — signal de ` +
+        `pre-verification, pas une preuve (§4). La claim repose sur ses autres sources.`,
+    );
+    gardees.push({
+      ...candidate,
+      sources: candidate.sources.filter((s) => !estSignal(s.url)),
+    });
+  }
+
+  return { candidates: gardees, exclues, ajustements };
+}
+
+/** Ce que le fact-checker doit savoir d'une source, calcule depuis le registre. */
+export interface NatureDeSource {
+  url: string;
+  tier: SourceTier;
+  fiabilite: "primaire" | "secondaire";
+  /** Vrai si un `fait` ne peut pas reposer sur elle seule. */
+  remontee_requise: boolean;
+  perimetre?: PerimetreDeMarche;
+  /** Formule que la claim doit porter : « sur Binance », « selon CoinGecko ». */
+  attribution?: string;
+}
+
+/**
+ * Nature de chaque source citee, une fois par URL.
+ *
+ * Primaire = tier 1 ou 2, la frontiere que `FACT_NEEDS_PRIMARY_SOURCE` applique
+ * deja au gate. Le modele recoit la meme frontiere des l'entree, plutot que de
+ * la decouvrir a la publication, ou elle bloquerait l'article entier.
+ */
+export function natureDesSources(
+  candidates: AnalysteOutput["candidates"],
+): NatureDeSource[] {
+  const vues = new Map<string, NatureDeSource>();
+  for (const candidate of candidates) {
+    for (const s of candidate.sources) {
+      if (vues.has(s.url)) continue;
+      const tier = classifySource(s.url).tier;
+      const marche = sourceDeMarche(s.url);
+      vues.set(s.url, {
+        url: s.url,
+        tier,
+        fiabilite: tier <= 2 ? "primaire" : "secondaire",
+        remontee_requise: tier > 2,
+        ...(marche === null
+          ? {}
+          : { perimetre: marche.perimetre, attribution: formuleDAttribution(marche) }),
+      });
+    }
+  }
+  return [...vues.values()];
 }
 
 /* -------------------------------------------------------------------------

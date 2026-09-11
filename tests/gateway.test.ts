@@ -133,6 +133,62 @@ describe("§4 — le tier vient du registre, pas de l'adaptateur", () => {
   });
 });
 
+describe("pertinence : une source hors sujet n'est pas interrogee", () => {
+  /**
+   * Le catalogue interroge TOUTES les sources a chaque article. Pour des series
+   * macro, c'est un choix assume ; pour des donnees de marche, c'est un defaut :
+   * un article sur l'Iran declencherait des requetes Binance, consommerait le
+   * quota CoinGecko et, en cas de panne, porterait la mention « source
+   * indisponible » d'une source qui n'avait rien a y faire.
+   */
+  function marche(pertinent: (topic: string) => boolean, appels: string[]): SourceAdapter {
+    return {
+      id: "marche:test",
+      describes: "marche",
+      pertinent: (q) => pertinent(q.topic),
+      async fetch(): Promise<FetchOutcome> {
+        appels.push("appel");
+        return {
+          requestedUrl: "https://data-api.binance.vision/api/v3/klines",
+          raw: {},
+          observations: [observation("https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT")],
+        };
+      },
+    };
+  }
+
+  it("n'appelle PAS une source qui se declare hors sujet, et ne la journalise pas", async () => {
+    const appels: string[] = [];
+    const { result, journal } = await collect([
+      marche(() => false, appels),
+      adapter("vivant", { observations: [observation("https://reliefweb.int/report/x")] }),
+    ]);
+    expect(appels).toEqual([]);
+    expect(result.failures).toEqual([]);
+    expect(journal).not.toContain("binance");
+  });
+
+  it("appelle une source qui se declare pertinente", async () => {
+    const appels: string[] = [];
+    const { result } = await collect([marche(() => true, appels)]);
+    expect(appels).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+  });
+
+  it("un filtre de pertinence en erreur n'ecarte pas la source : echec OUVERT", async () => {
+    // Un filtre bogue qui ecarterait en silence produirait exactement l'echec
+    // muet que la passerelle existe pour empecher. On prefere une requete de
+    // trop a une source disparue sans trace.
+    const appels: string[] = [];
+    await collect([
+      marche(() => {
+        throw new Error("filtre casse");
+      }, appels),
+    ]);
+    expect(appels).toHaveLength(1);
+  });
+});
+
 describe("robustesse de la collecte", () => {
   it("un adaptateur en echec n'empeche pas les autres de repondre", async () => {
     const { result } = await collect([

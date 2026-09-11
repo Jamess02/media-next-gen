@@ -45,6 +45,9 @@ export const FORMES_DE_CLEFS: readonly FormeDeClef[] = [
   { nom: "github", motif: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/g },
   { nom: "slack", motif: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { nom: "aws", motif: /\bAKIA[0-9A-Z]{16}\b/g },
+  // Plan Demo de CoinGecko : « CG- » suivi de 24 caracteres. Le plancher de
+  // 20 laisse passer « CG-Paris » ou « CG-40 », qui ne sont pas des clefs.
+  { nom: "coingecko", motif: /\bCG-[A-Za-z0-9]{20,}\b/g },
   { nom: "hex-32", motif: /(?<![0-9a-fA-F])[0-9a-f]{32}(?![0-9a-fA-F])/g },
 ];
 
