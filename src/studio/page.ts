@@ -70,6 +70,25 @@ button[disabled]{opacity:.45;cursor:not-allowed}
 .badge.n0,.badge.n1{color:var(--faible)}
 .note-vague{color:var(--gris);font-size:11px}
 .vide{color:var(--gris);font-size:12px;padding:14px;border:1px dashed var(--trait);border-radius:4px}
+/* --- relecture ------------------------------------------------------------
+   Le bloc de validation est visuellement distinct du reste : c'est le seul
+   endroit de l'interface ou une action engage une PERSONNE, pas la machine. */
+.relire{margin-top:9px;padding-top:9px;border-top:1px dashed var(--trait)}
+.relire input{font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--trait);
+  border-radius:3px;background:var(--fond);color:var(--encre)}
+.relire input.nom{width:150px} .relire input.note{width:210px}
+.relire button{font:inherit;font-size:12px;padding:4px 9px;margin-left:5px}
+.relire .rappel{color:var(--gris);font-size:11px;margin-top:5px}
+.atteste{font-size:11px;color:var(--fort);border:1px solid var(--fort);
+  border-radius:3px;padding:3px 7px;display:inline-block}
+/* L'apercu est un CADRE portant la page d'article du site, pas du texte :
+   la relecture doit se faire sur la forme reellement publiee. Hauteur
+   genereuse — un article long relu dans une fenetre de 340px ne se relit pas. */
+.apercu{margin-top:8px;width:100%;height:68vh;min-height:420px;border:1px solid var(--trait);
+  border-radius:3px;background:var(--fond);display:block}
+.relire .ouvrir{font-size:11.5px;margin-left:9px;color:var(--gris)}
+.relire .ouvrir:hover{color:var(--encre)}
+.echec{color:var(--faible);font-size:11.5px;margin-top:5px;white-space:pre-wrap}
 ul.brut{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto}
 ul.brut li{padding:4px 0;border-bottom:1px dotted var(--trait);font-size:11px;
   color:var(--gris);word-break:break-all}
@@ -109,7 +128,7 @@ ul.brut li{padding:4px 0;border-bottom:1px dotted var(--trait);font-size:11px;
   </div>
 
   <div>
-    <div class="section">articles publies</div>
+    <div class="section">brouillons — a relire et valider</div>
     <div id="articles"><div class="vide">Chargement…</div></div>
 
     <div class="section">journal d'audit (§9.4)</div>
@@ -139,6 +158,132 @@ function ligne(etiquette, texte, classe) {
   flux.appendChild(d);
   flux.scrollTop = flux.scrollHeight;
   return d;
+}
+
+/**
+ * Bloc de relecture d'un article.
+ *
+ * Deja valide : on montre QUI a atteste, et plus aucun formulaire — une
+ * attestation ne se refait pas depuis l'interface.
+ *
+ * Pas encore valide : lire, puis nommer, puis valider. Le champ du relecteur
+ * est VIDE et le reste. Ni valeur par defaut, ni nom memorise d'une fois sur
+ * l'autre : ce champ affirme qu'une personne a lu, et le pre-remplir en ferait
+ * une case a cocher.
+ */
+function blocRelecture(a) {
+  const bloc = document.createElement("div");
+  bloc.className = "relire";
+
+  if (a.valide) {
+    const s = document.createElement("span");
+    s.className = "atteste";
+    s.textContent = "VALIDE — relu par " + a.relecteur;
+    bloc.appendChild(s);
+    return bloc;
+  }
+
+  const lire = document.createElement("button");
+  lire.className = "secondaire";
+  lire.textContent = "lire";
+
+  const nom = document.createElement("input");
+  nom.type = "text";
+  nom.className = "nom";
+  nom.placeholder = "votre nom";
+  nom.autocomplete = "off";
+
+  const note = document.createElement("input");
+  note.type = "text";
+  note.className = "note";
+  note.placeholder = "note de relecture (facultatif)";
+  note.autocomplete = "off";
+
+  const valider = document.createElement("button");
+  valider.textContent = "valider";
+
+  const ligne = document.createElement("div");
+  ligne.appendChild(lire);
+  ligne.appendChild(nom);
+  ligne.appendChild(note);
+  ligne.appendChild(valider);
+  bloc.appendChild(ligne);
+
+  const rappel = document.createElement("div");
+  rappel.className = "rappel";
+  rappel.textContent =
+    "Valider promeut ce brouillon vers articles/ et signe une attestation a votre nom (§6).";
+  bloc.appendChild(rappel);
+
+  const message = document.createElement("div");
+  message.className = "echec";
+  bloc.appendChild(message);
+
+  // L'apercu charge la page d'article TELLE QUE LE SITE la rend, dans un
+  // cadre. Le markdown brut ne portait ni fiches de preuve, ni tableau de
+  // chiffres, ni encart d'incertitudes — c'est-a-dire precisement ce qu'une
+  // relecture doit controler. Attester sur un texte ampute de ses preuves,
+  // c'est attester de ce qu'on n'a pas vu.
+  //
+  // Un cadre plutot qu'une insertion directe : la page du studio n'interpole
+  // JAMAIS de HTML (voir l'en-tete du serveur), et le document rendu porte ses
+  // propres styles.
+  lire.addEventListener("click", () => {
+    const deja = bloc.querySelector(".apercu");
+    if (deja) { deja.remove(); lire.textContent = "lire"; return; }
+    const cadre = document.createElement("iframe");
+    cadre.className = "apercu";
+    cadre.setAttribute("loading", "lazy");
+    cadre.setAttribute("title", "Apercu de « " + a.titre + " »");
+    // allow-same-origin laisse le document heriter du theme ; les scripts
+    // restent interdits, le contenu n'ayant rien a executer.
+    cadre.setAttribute("sandbox", "allow-same-origin");
+    cadre.src = "/apercu?jeton=" + JETON + "&id=" + encodeURIComponent(a.id);
+    bloc.appendChild(cadre);
+    lire.textContent = "replier";
+  });
+
+  const ouvrir = document.createElement("a");
+  ouvrir.className = "ouvrir";
+  ouvrir.target = "_blank";
+  ouvrir.rel = "noopener";
+  ouvrir.textContent = "ouvrir en pleine page";
+  ouvrir.href = "/apercu?jeton=" + JETON + "&id=" + encodeURIComponent(a.id);
+  ligne.appendChild(ouvrir);
+
+  valider.addEventListener("click", async () => {
+    message.textContent = "";
+    if (nom.value.trim() === "") {
+      // Meme refus que le serveur, dit ici pour que l'editeur comprenne
+      // POURQUOI plutot que de recevoir une erreur apres coup.
+      message.textContent =
+        "Nommez-vous : une relecture anonyme n'engage personne. Ce champ ne peut pas etre rempli a votre place.";
+      nom.focus();
+      return;
+    }
+    valider.disabled = true;
+    valider.textContent = "validation…";
+    try {
+      const r = await fetch("/api/valider?jeton=" + JETON, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: a.id, relecteur: nom.value, note: note.value }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        message.textContent = j.erreur || ("echec (" + r.status + ")");
+        return;
+      }
+      await charger();
+    } catch (e) {
+      message.textContent = String(e);
+    } finally {
+      valider.disabled = false;
+      valider.textContent = "valider";
+    }
+  });
+
+  return bloc;
 }
 
 async function charger() {
@@ -182,9 +327,10 @@ async function charger() {
     c.appendChild(m);
     const d = document.createElement("div");
     d.className = "meta";
-    d.textContent = "publie " + a.publie + (a.revise ? " · revise " + a.revise : "") +
+    d.textContent = "produit " + a.publie + (a.revise ? " · revise " + a.revise : "") +
       " · " + a.incertitudes + " incertitude(s) · " + a.ecartees + " ecartee(s)";
     c.appendChild(d);
+    c.appendChild(blocRelecture(a));
     box.appendChild(c);
   }
 

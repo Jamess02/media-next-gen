@@ -39,10 +39,13 @@ import {
   TAILLE_VAGUE,
   executerVague,
 } from "../planification/vagues.js";
+import { EditorialChangelog } from "../editorial/changelog.js";
+import { validateArticle } from "../editorial/validation.js";
 import { ArticleSchema } from "../protocol/schema.js";
 import { buildSourceCatalogue } from "../sources/catalogue.js";
 import { MOCK_ADAPTERS } from "../sources/mock-sources.js";
 import { buildSite } from "../site/build.js";
+import { articlePage } from "../site/templates.js";
 import { STUDIO_PAGE } from "./page.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -63,22 +66,47 @@ const json = (res: ServerResponse, code: number, data: unknown): void => {
  * Etat courant
  * ---------------------------------------------------------------------- */
 
-async function lireArticles(): Promise<unknown[]> {
-  if (!existsSync(OUTPUT_DIR)) return [];
-  const fichiers = (await readdir(OUTPUT_DIR)).filter((f) => f.endsWith(".json"));
+/**
+ * Lit l'attestation de relecture d'un article, si elle existe.
+ *
+ * Son absence n'est PAS une anomalie : c'est l'etat normal d'un brouillon que
+ * personne n'a encore relu. On rend `null`, jamais un relecteur suppose.
+ */
+async function lireRelecteur(publishedDir: string, id: string): Promise<string | null> {
+  const p = join(publishedDir, `${id}.review.json`);
+  if (!existsSync(p)) return null;
+  try {
+    const r = JSON.parse(await readFile(p, "utf8")) as { reviewer?: unknown };
+    return typeof r.reviewer === "string" ? r.reviewer : null;
+  } catch {
+    return null;
+  }
+}
+
+async function lireArticles(
+  draftDir: string,
+  publishedDir: string,
+): Promise<unknown[]> {
+  if (!existsSync(draftDir)) return [];
+  const fichiers = (await readdir(draftDir)).filter((f) => f.endsWith(".json"));
   const articles: unknown[] = [];
 
   for (const f of fichiers) {
     const parsed = ArticleSchema.safeParse(
-      JSON.parse(await readFile(join(OUTPUT_DIR, f), "utf8")),
+      JSON.parse(await readFile(join(draftDir, f), "utf8")),
     );
     if (!parsed.success) continue;
     const a = parsed.data;
+    const relecteur = await lireRelecteur(publishedDir, a.id);
     articles.push({
       id: a.id,
       titre: a.title,
       publie: a.published_at,
       revise: a.revised_at,
+      // L'attestation est la SEULE preuve de relecture. Pas de fichier, pas de
+      // relecteur : l'article reste un brouillon, quoi qu'affiche l'interface.
+      valide: relecteur !== null,
+      relecteur,
       claims: a.claims.map((c) => ({
         id: c.id,
         type: c.type,
@@ -232,8 +260,103 @@ async function executer(
  * Serveur
  * ---------------------------------------------------------------------- */
 
+/** Lit un corps JSON, borne pour qu'un client bavard ne sature pas la memoire. */
+async function lireCorpsJson(req: IncomingMessage, max = 64_000): Promise<unknown> {
+  const morceaux: Buffer[] = [];
+  let total = 0;
+  for await (const c of req) {
+    const buf = c as Buffer;
+    total += buf.length;
+    if (total > max) throw new Error("corps trop volumineux");
+    morceaux.push(buf);
+  }
+  if (total === 0) return {};
+  return JSON.parse(Buffer.concat(morceaux).toString("utf8"));
+}
+
+/**
+ * Valide un article relu — l'acte qui fait passer un brouillon a la publication.
+ *
+ * LE NOM DU RELECTEUR VIENT DE L'UTILISATEUR, TOUJOURS.
+ *
+ * Aucune valeur par defaut, aucun « editeur » generique, aucun nom devine
+ * depuis la configuration git ou l'environnement. Une attestation affirme
+ * qu'une personne a lu et engage sa responsabilite (§6) ; la remplir a sa
+ * place la reduirait a une formalite, et le dispositif entier deviendrait
+ * decoratif. C'est pourquoi un champ vide est un refus, pas un defaut a combler.
+ */
+async function validerDepuisStudio(
+  req: IncomingMessage,
+  res: ServerResponse,
+  draftDir: string,
+  publishedDir: string,
+  changelog: EditorialChangelog,
+): Promise<void> {
+  let corps: { id?: unknown; relecteur?: unknown; note?: unknown };
+  try {
+    corps = (await lireCorpsJson(req)) as typeof corps;
+  } catch {
+    json(res, 400, { erreur: "corps JSON illisible" });
+    return;
+  }
+
+  const id = typeof corps.id === "string" ? corps.id.trim() : "";
+  const relecteur = typeof corps.relecteur === "string" ? corps.relecteur.trim() : "";
+  const note = typeof corps.note === "string" && corps.note.trim().length > 0
+    ? corps.note.trim()
+    : undefined;
+
+  if (relecteur.length === 0) {
+    json(res, 400, {
+      erreur:
+        "relecteur manquant : une relecture anonyme n'engage personne. " +
+        "Ce champ ne peut pas etre rempli a votre place.",
+    });
+    return;
+  }
+  if (id.length === 0) {
+    json(res, 400, { erreur: "identifiant d'article manquant" });
+    return;
+  }
+
+  try {
+    const r = await validateArticle({
+      articleId: id,
+      reviewer: relecteur,
+      ...(note === undefined ? {} : { note }),
+      draftDir,
+      publishedDir,
+      changelog,
+    });
+    json(res, 200, {
+      id: r.article.id,
+      titre: r.article.title,
+      relecteur: r.review.reviewer,
+      relu_le: r.review.reviewed_at,
+      empreinte: r.review.content_sha256,
+      chemin: r.articlePath,
+      avertissements: r.warnings.map((w) => `[${w.clause} ${w.rule}] ${w.message}`),
+    });
+  } catch (e) {
+    // Le motif est rendu tel quel : refus du gate, brouillon absent,
+    // identifiant hors repertoire. L'editeur doit savoir CE QUI bloque.
+    json(res, 400, { erreur: e instanceof Error ? e.message : String(e) });
+  }
+}
+
 export interface StudioOptions {
   port?: number;
+  /**
+   * Repertoires, surchargeables pour les tests.
+   *
+   * Sans cette injection, exercer la validation ecrirait dans les `output/` et
+   * `articles/` REELS de l'editeur : un test aurait promu de vrais brouillons
+   * et signe de vraies attestations. Un dispositif dont la verification
+   * fabrique ce qu'il est cense proteger ne protege rien.
+   */
+  draftDir?: string;
+  publishedDir?: string;
+  changelogPath?: string;
 }
 
 export interface StudioInstance {
@@ -368,6 +491,11 @@ export async function startStudio(
   options: StudioOptions = {},
 ): Promise<StudioInstance> {
   const port = options.port ?? 5173;
+  const draftDir = options.draftDir ?? OUTPUT_DIR;
+  const publishedDir = options.publishedDir ?? join(RACINE, "articles");
+  const changelog = new EditorialChangelog(
+    options.changelogPath ?? join(RACINE, "changelog-editorial.md"),
+  );
 
   // Un secret par DEMARRAGE. Fixe, il finirait dans une capture d'ecran ou un
   // historique de navigation et vaudrait pour toutes les sessions suivantes.
@@ -380,6 +508,12 @@ export async function startStudio(
     "/api/publier": ["GET"], // EventSource ne sait faire que du GET.
     "/api/vague": ["GET"],   // idem : SSE, donc GET.
     "/api/site": ["POST"],
+    // Valider est une ECRITURE, et une ecriture qui engage un nom : POST
+    // uniquement. En GET, elle serait declenchable par une simple balise
+    // <img> sur n'importe quelle page ouverte dans le meme navigateur.
+    "/apercu": ["GET"],
+    "/api/article": ["GET"],
+    "/api/valider": ["POST"],
   };
 
   const server = createServer((req, res) => {
@@ -420,9 +554,65 @@ export async function startStudio(
             res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
             res.end(STUDIO_PAGE.replace("__JETON__", jeton));
             return;
+          case "/apercu": {
+            // L'apercu emprunte le MEME gabarit que le site, pas un gabarit
+            // ressemblant : deux rendus distincts divergeraient a la premiere
+            // evolution de l'un des deux, et l'editeur attesterait alors d'une
+            // forme que le lecteur ne verra pas.
+            //
+            // Le markdown brut ne suffisait pas : il ne porte ni fiches de
+            // preuve, ni tableau de chiffres, ni encart d'incertitudes, ni
+            // divulgation en gras — c'est-a-dire precisement ce qu'une
+            // relecture doit controler.
+            const id = url.searchParams.get("id") ?? "";
+            if (!/^article-[0-9a-fA-F-]{36}$/.test(id)) {
+              json(res, 400, { erreur: "identifiant d'article invalide" });
+              return;
+            }
+            const chemin = join(draftDir, `${id}.json`);
+            if (!existsSync(chemin)) {
+              json(res, 404, { erreur: "brouillon introuvable" });
+              return;
+            }
+            const parsed = ArticleSchema.safeParse(
+              JSON.parse(await readFile(chemin, "utf8")),
+            );
+            if (!parsed.success) {
+              json(res, 422, {
+                erreur: "brouillon non conforme au contrat §7",
+                detail: parsed.error.issues.map((i) => i.message),
+              });
+              return;
+            }
+            res.writeHead(200, {
+              "content-type": "text/html; charset=utf-8",
+              "cache-control": "no-store",
+            });
+            res.end(articlePage(parsed.data));
+            return;
+          }
+          case "/api/article": {
+            // Lire AVANT d'attester. Sans cela, le bouton de validation ne
+            // certifierait qu'un clic.
+            const id = url.searchParams.get("id") ?? "";
+            if (!/^article-[0-9a-fA-F-]{36}$/.test(id)) {
+              json(res, 400, { erreur: "identifiant d'article invalide" });
+              return;
+            }
+            const chemin = join(draftDir, `${id}.md`);
+            if (!existsSync(chemin)) {
+              json(res, 404, { erreur: "brouillon introuvable" });
+              return;
+            }
+            json(res, 200, { id, markdown: await readFile(chemin, "utf8") });
+            return;
+          }
+          case "/api/valider":
+            await validerDepuisStudio(req, res, draftDir, publishedDir, changelog);
+            return;
           case "/api/etat":
             json(res, 200, {
-              articles: await lireArticles(),
+              articles: await lireArticles(draftDir, publishedDir),
               fournisseurs: etatFournisseurs(),
               audit: await lireAudit(),
             });
