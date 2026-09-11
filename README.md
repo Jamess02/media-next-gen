@@ -210,9 +210,13 @@ La comparaison de la mention ignore accents et casse. Bloquer un texte conforme 
 
 Sans clé FRED, la source est **déclarée absente** plutôt que silencieusement omise (EP-003). Trois autres sources du §4 sont documentées comme non branchées, avec leur motif — dont GDELT, dont le certificat TLS a expiré : contourner la vérification TLS exposerait le pipeline à une interception.
 
-Le mode `live` exige `--mode=live` **et** `ANTHROPIC_API_KEY`. Un pipeline qui
-appellerait une API payante et publierait de vraies affirmations parce qu'une
-variable d'environnement traînait ne serait pas acceptable.
+**`--mode=live` est refusé.** Ce drapeau hérité sélectionnait Anthropic, le seul
+fournisseur facturé, sans que son nom l'annonce : « live » évoque des sources
+réelles, pas une dépense. Il échoue désormais avec un message, avant tout appel.
+Pour des sources réelles, choisir explicitement un fournisseur gratuit :
+`npm run dev -- --provider=gemini --real-sources "<sujet>"`. Un pipeline qui
+appellerait une API payante parce qu'un argument ou une variable d'environnement
+traînait ne serait pas acceptable.
 
 **Deux jeux de réponses simulées, et c'est délibéré.** Le scénario scripté porte
 sur une économie **fictive** (Zembla), tout est préfixé `[SIMULATION]`, et il

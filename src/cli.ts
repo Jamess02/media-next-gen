@@ -3,7 +3,7 @@
  *
  *   npm run dev -- "politique monetaire et flux commerciaux"
  *   npm run dev -- --real-sources "inflation en zone euro"
- *   npm run dev -- --mode=live "sanctions et flux energetiques"
+ *   npm run dev -- --provider=gemini --real-sources "sanctions et flux energetiques"
  *   npm run dev -- revise <article-id> --type=factuelle "Chiffre corrige : ..."
  *
  * Le mode `mock` est le defaut et le reste tant qu'aucune clef n'est presente.
@@ -18,6 +18,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PublicationRefused } from "./agents/editeur.js";
+import { drapeauRefuse, ressembleAUneCommande } from "./securite/commande.js";
 import {
   enquetesDepuisArticles,
   type Investigation,
@@ -121,8 +122,11 @@ function parseArgs(argv: readonly string[]): Command {
     if (arg.startsWith("--provider=")) {
       provider = arg.slice("--provider=".length) as ProviderName;
     }
-    // `--mode=live` conserve pour compatibilite : equivaut a --provider=anthropic.
-    else if (arg === "--mode=live") provider = "anthropic";
+    // `--mode=live` selectionnait Anthropic — facture, et interdit par
+    // l editeur. Il echoue desormais avec un message, AVANT tout appel.
+    else if (drapeauRefuse(arg) !== null) {
+      return { kind: "error", message: drapeauRefuse(arg) as string };
+    }
     else if (arg === "--mode=mock") provider = "mock";
     else if (arg === "--real-sources") realSources = true;
     else if (arg === "--prospectif") mode = "prospectif";
@@ -204,9 +208,28 @@ function parseArgs(argv: readonly string[]): Command {
     return { kind: "revise", articleId, type, description };
   }
 
+  // Tout argument inconnu devient un sujet, et un sujet declenche de vrais
+  // appels d'API. Sans ce controle, `npm run dev -- verify-journal` — le nom
+  // interne de `journal` — a lance le pipeline le 2026-09-11 : cinq appels au
+  // modele, pour rien. Avec un fournisseur facture, une faute de frappe aurait
+  // coute de l'argent. On refuse ce qui ressemble a une commande, AVANT tout
+  // appel.
+  const sujet = positional.join(" ").trim();
+  const commande = ressembleAUneCommande(sujet);
+  if (commande !== null) {
+    return {
+      kind: "error",
+      message:
+        `« ${sujet} » ressemble a une commande, pas a un sujet d'article. ` +
+        `Vouliez-vous dire : npm run dev -- ${commande} ?\n` +
+        `Aucun appel n'a ete lance. Pour un vrai sujet d'un seul mot proche ` +
+        `d'une commande, formulez-le en plusieurs mots.`,
+    };
+  }
+
   return {
     kind: "publish",
-    topic: positional.join(" ").trim() || "politique monetaire et flux commerciaux",
+    topic: sujet || "politique monetaire et flux commerciaux",
     provider,
     realSources,
     mode,

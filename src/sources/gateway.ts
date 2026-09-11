@@ -17,6 +17,7 @@
 import type { AuditLog } from "../audit/audit-log.js";
 import { redactText } from "../audit/redaction.js";
 import { RawEventSchema, type RawEvent } from "../protocol/schema.js";
+import { detecterInjection } from "../securite/injection.js";
 import { classifySource, secondariesShadowedByPrimary } from "./registry.js";
 import type { SourceAdapter, SourceQuery } from "./types.js";
 
@@ -110,6 +111,28 @@ export class SourceGateway {
           });
           continue;
         }
+
+        // INJECTION INDIRECTE. Le texte d'une source est ecrit par un tiers et
+        // sera LU par un agent. Une instruction adressee a un modele — « ignore
+        // les instructions precedentes » — n'a rien a faire dans un article
+        // sourcé : l'observation est ecartee avant d'atteindre le moindre prompt.
+        // Les agregateurs ramenant du texte de n'importe quel site, c'est ici,
+        // a la seule entree de toutes les sources, que le controle doit vivre.
+        //
+        // Le motif, et lui seul, est trace : recopier la charge dans le journal
+        // la reinjecterait par le canal meme qui sert a la signaler.
+        const injection = detecterInjection(`${parsed.data.source} ${parsed.data.resume}`);
+        if (injection !== null) {
+          failures.push({
+            adapterId: adapter.id,
+            error:
+              `observation ecartee — tentative d'instruction adressee a un modele ` +
+              `detectee dans le texte de la source (motif : ${injection}). Injection ` +
+              `indirecte presumee : cette source ne peut pas fonder un article.`,
+          });
+          continue;
+        }
+
         events.push(parsed.data);
       }
     }
