@@ -82,6 +82,13 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "radar.cloudflare.com", tier: 2, name: "Cloudflare Radar" },
   { domain: "l0g.fr", tier: 2, name: "l0g.fr" },
   { domain: "opensanctions.org", tier: 2, name: "OpenSanctions" },
+  // Services officiels, mais pas documents de decision — d'ou le tier 2,
+  // choisi par prudence. ONU Info RELATE ce que decident les organes des
+  // Nations unies ; GDACS CALCULE une alerte et une population exposee a
+  // partir de donnees d'autres emetteurs. Pour la decision elle-meme ou pour
+  // un bilan constate, il faut remonter plus haut.
+  { domain: "news.un.org", tier: 2, name: "ONU Info" },
+  { domain: "gdacs.org", tier: 2, name: "GDACS (ONU / Commission europeenne)" },
   // Agregat multi-plateformes, methodologie publiee : la definition meme du
   // tier 2. L'attribution « selon CoinGecko » est exigee a part.
   { domain: "api.coingecko.com", tier: 2, name: "CoinGecko (agregat multi-plateformes)" },

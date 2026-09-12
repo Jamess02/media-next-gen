@@ -21,6 +21,18 @@ describe("classification en tiers", () => {
     expect(classifySource("https://l0g.fr/protocole-editorial/").tier).toBe(2);
   });
 
+  it("classe ONU Info et GDACS en tier 2, pas en tier 1", () => {
+    // Choix CONSERVATEUR, et il se defend : ONU Info RELATE ce que decident
+    // les organes des Nations unies — c'est un service d'information, pas le
+    // document de decision. GDACS CALCULE une alerte et une estimation de
+    // population touchee a partir de donnees d'autres emetteurs : un agregat
+    // public et source, soit la definition meme du tier 2.
+    expect(classifySource("https://news.un.org/fr/story/2026/09/1159456").tier).toBe(2);
+    expect(
+      classifySource("https://www.gdacs.org/report.aspx?eventtype=EQ&eventid=1564809").tier,
+    ).toBe(2);
+  });
+
   it("distingue GDELT (tier 2) de GDELT Cloud (tier 3)", () => {
     expect(classifySource("https://www.gdeltproject.org/cloud/x").tier).toBe(3);
     expect(classifySource("https://www.gdeltproject.org/api/x").tier).toBe(2);

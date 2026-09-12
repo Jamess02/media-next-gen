@@ -54,33 +54,22 @@ export interface Theme {
  * scenario porte sa condition, et qu'un sujet formule en prevision pousse le
  * modele a en produire une.
  */
+/**
+ * L'ORDRE DES CONSTATS EST UNE GARANTIE, PAS UNE PRESENTATION.
+ *
+ * Une vague prend quatre constats CONSECUTIFS dans cette liste, en tournant.
+ * Si la geopolitique et l'evenementiel y etaient groupes, des vagues entieres
+ * n'en porteraient aucun — c'est ce qui se passait, et ce que l'editeur a
+ * constate le 2026-09-13. Ils sont donc INTERCALES, de sorte que toute fenetre
+ * de quatre en contienne au moins deux. Un test le verifie sur trente vagues.
+ *
+ * Leur nombre compte aussi : treize constats pour une fenetre de quatre, sept
+ * prospectifs pour une fenetre de deux. Des comptes premiers entre eux avec la
+ * taille de la fenetre font defiler TOUTES les combinaisons ; avec huit
+ * constats, la rotation ne produisait que deux vagues differentes.
+ */
 export const THEMES: readonly Theme[] = [
   // --- Constats : ce qui est etabli --------------------------------------
-  {
-    domaine: "macro",
-    sujet: "inflation annuelle en zone euro : dernier releve publie par Eurostat",
-    mode: "constat",
-  },
-  {
-    domaine: "macro",
-    sujet: "croissance du PIB : dernieres donnees publiees pour la France et le monde",
-    mode: "constat",
-  },
-  {
-    domaine: "banques centrales",
-    sujet: "bilan de la Reserve federale : niveau de l'actif total",
-    mode: "constat",
-  },
-  {
-    domaine: "banques centrales",
-    sujet: "taux directeur americain : dernier releve de la serie des fonds federaux",
-    mode: "constat",
-  },
-  {
-    domaine: "banques centrales",
-    sujet: "publications recentes de la Banque du Japon",
-    mode: "constat",
-  },
   {
     domaine: "geopolitique",
     sujet: "sanctions americaines : designations recentes et programmes concernes",
@@ -92,8 +81,63 @@ export const THEMES: readonly Theme[] = [
     mode: "constat",
   },
   {
+    domaine: "macro",
+    sujet: "inflation annuelle en zone euro : dernier releve publie par Eurostat",
+    mode: "constat",
+  },
+  {
+    domaine: "humanitaire",
+    sujet:
+      "alertes de catastrophe en cours : ce que le systeme GDACS classe et ce qu'il estime",
+    mode: "constat",
+  },
+  {
+    domaine: "geopolitique",
+    sujet: "paix et securite : ce que les Nations unies ont publie ces derniers jours",
+    mode: "constat",
+  },
+  {
+    domaine: "banques centrales",
+    sujet: "bilan de la Reserve federale : niveau de l'actif total",
+    mode: "constat",
+  },
+  {
+    domaine: "risque naturel",
+    sujet:
+      "populations exposees par les dernieres alertes de catastrophe, et ce que l'estimation ne dit pas",
+    mode: "constat",
+  },
+  {
+    domaine: "geopolitique",
+    sujet: "conflits et processus diplomatiques documentes par les Nations unies",
+    mode: "constat",
+  },
+  {
+    domaine: "macro",
+    sujet: "croissance du PIB : dernieres donnees publiees pour la France et le monde",
+    mode: "constat",
+  },
+  {
+    domaine: "humanitaire",
+    sujet:
+      "crises humanitaires : ce que l'ONU documente, et les reponses annoncees par les autorites",
+    mode: "constat",
+  },
+  {
+    domaine: "banques centrales",
+    sujet: "taux directeur americain : dernier releve de la serie des fonds federaux",
+    mode: "constat",
+  },
+  {
+    domaine: "risque naturel",
+    sujet:
+      "seisme recent : magnitude relevee, niveau d'alerte, et ce qui a ete decide sur place",
+    mode: "constat",
+  },
+  {
     domaine: "institutions",
-    sujet: "communiques recents du Board de la Reserve federale",
+    sujet:
+      "communiques recents des banques centrales : Reserve federale et Banque du Japon",
     mode: "constat",
   },
 
@@ -105,9 +149,9 @@ export const THEMES: readonly Theme[] = [
     mode: "prospectif",
   },
   {
-    domaine: "banques centrales",
+    domaine: "geopolitique",
     sujet:
-      "trajectoire du bilan de la Reserve federale si le rythme observe se maintient",
+      "ce qu'impliquerait une poursuite du rythme actuel de designations de sanctions",
     mode: "prospectif",
   },
   {
@@ -117,21 +161,27 @@ export const THEMES: readonly Theme[] = [
     mode: "prospectif",
   },
   {
-    domaine: "macro",
-    sujet:
-      "ce qui suivrait si la croissance mondiale se maintenait au rythme du dernier releve",
-    mode: "prospectif",
-  },
-  {
-    domaine: "geopolitique",
-    sujet:
-      "ce qu'impliquerait une poursuite du rythme actuel de designations de sanctions",
-    mode: "prospectif",
-  },
-  {
     domaine: "risque naturel",
     sujet:
       "exposition economique si l'activite sismique observee se poursuivait au meme rythme",
+    mode: "prospectif",
+  },
+  {
+    domaine: "banques centrales",
+    sujet:
+      "trajectoire du bilan de la Reserve federale si le rythme observe se maintient",
+    mode: "prospectif",
+  },
+  {
+    domaine: "humanitaire",
+    sujet:
+      "ce que supposerait le maintien du niveau d'alerte actuel sur les zones deja touchees",
+    mode: "prospectif",
+  },
+  {
+    domaine: "macro",
+    sujet:
+      "ce qui suivrait si la croissance mondiale se maintenait au rythme du dernier releve",
     mode: "prospectif",
   },
 ];

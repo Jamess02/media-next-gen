@@ -102,6 +102,22 @@ describe("composition d'une vague", () => {
     expect(domaines.size).toBeGreaterThan(1);
   });
 
+  it("porte TOUJOURS de la geopolitique ou de l'evenementiel, a chaque vague", () => {
+    // Demande de l'editeur du 2026-09-13 : « je veux que tu en fasse
+    // davantage ». Le catalogue penchait vers la macro et les banques
+    // centrales — deux themes geopolitiques sur quatorze — et une vague
+    // entiere pouvait n'en porter aucun.
+    //
+    // Une consigne de redaction ne garantirait rien ici : c'est la ROTATION
+    // qui decide de ce qui est produit. On l'exige donc d'elle, sur toutes les
+    // vagues, pas seulement la premiere.
+    const vises = new Set(["geopolitique", "risque naturel", "humanitaire"]);
+    for (let i = 0; i < 30; i += 1) {
+      const compte = composerVague(i).filter((s) => vises.has(s.domaine)).length;
+      expect(compte, `vague ${i}`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it("le catalogue de themes couvre les deux modes", () => {
     expect(THEMES.some((t) => t.mode === "constat")).toBe(true);
     expect(THEMES.some((t) => t.mode === "prospectif")).toBe(true);

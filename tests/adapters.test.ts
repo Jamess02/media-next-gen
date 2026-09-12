@@ -368,6 +368,28 @@ describe("catalogue des sources", () => {
     expect(adapters.some((a) => a.id.startsWith("newsdata:"))).toBe(false);
   });
 
+  it("branche les emetteurs geopolitiques et evenementiels, sans clef", () => {
+    // Un theme sans source produit un arret en collecte : les sujets de
+    // geopolitique demandes le 2026-09-13 n'ont de sens que si les emetteurs
+    // sont branches d'abord.
+    const ids = buildSourceCatalogue({}).adapters.map((a) => a.id);
+    expect(ids).toContain("onu:paix-securite");
+    expect(ids).toContain("gdacs:alertes");
+  });
+
+  it("documente les flux geopolitiques ECARTES, avec leur mesure", () => {
+    const { skipped } = buildSourceCatalogue({});
+    const motif = (id: string) => skipped.find((s) => s.id === id)?.reason ?? "";
+    // Meme piege que le flux h41 de la Fed : un flux qui repond mais dont la
+    // derniere entree a 199 jours ferait porter a chaque article une mention
+    // « source indisponible » trompeuse.
+    expect(motif("oms:news")).toMatch(/199 jours/);
+    // Refus d'un client honnete : le contourner supposerait d'usurper un
+    // navigateur, ce que ce projet n'autorise pas.
+    expect(motif("smithsonian:volcans")).toMatch(/403/);
+    expect(motif("consilium:communiques")).toMatch(/403/);
+  });
+
   it("documente les sources ecartees pour raisons externes", () => {
     const { skipped } = buildSourceCatalogue({});
     const ids = skipped.map((s) => s.id);

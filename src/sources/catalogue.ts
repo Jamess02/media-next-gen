@@ -213,6 +213,44 @@ export function buildSourceCatalogue(
       limit: 3,
     }),
 
+    // --- Tier 2 : geopolitique et evenementiel -----------------------------
+    //
+    // Demande de l'editeur du 2026-09-13 : davantage de geopolitique, et
+    // davantage d'articles evenementiels du genre de celui sur les seismes.
+    // Un theme sans source ne produit qu'un arret en collecte : les emetteurs
+    // se branchent donc AVANT que les sujets n'entrent en rotation.
+    //
+    // MESURES du 2026-09-13 : ONU Info rend 30 entrees, la plus recente de la
+    // veille ; GDACS en rend 206, la plus recente du jour. Les autres flux
+    // candidats sont ecartes plus bas, avec leur motif.
+    rssAdapter({
+      id: "onu:paix-securite",
+      source: "ONU Info",
+      url: "https://news.un.org/feed/subscribe/fr/news/topic/peace-and-security/feed/rss.xml",
+      describes:
+        "Actualites des Nations unies sur la paix et la securite, publiees en francais par leur service d'information",
+      type: "actualite-institution-internationale",
+      limit: 4,
+      caveat:
+        "Service d'information des Nations unies (tier 2) : il RELATE ce que " +
+        "declarent ou decident les organes de l'ONU. Pour un chiffre ou une " +
+        "decision, remonter au document de l'organe cite (EP-001).",
+    }),
+    rssAdapter({
+      id: "gdacs:alertes",
+      source: "GDACS",
+      url: "https://www.gdacs.org/xml/rss.xml",
+      describes:
+        "Alertes de catastrophes — seismes, cyclones, inondations — du systeme GDACS, opere par l'ONU et la Commission europeenne",
+      type: "alerte-catastrophe",
+      limit: 4,
+      caveat:
+        "Alerte AUTOMATIQUE : le niveau (vert, orange, rouge) et la population " +
+        "exposee sont des ESTIMATIONS calculees par modele a partir de la " +
+        "magnitude et de la densite de population — jamais un bilan constate. " +
+        "A citer comme estimation datee (§3), jamais comme un nombre de victimes.",
+    }),
+
     // --- Tier 3 : presse ---------------------------------------------------
     //
     // Premieres sources secondaires du catalogue. Jusqu'ici tout etait de
@@ -372,6 +410,47 @@ export function buildSourceCatalogue(
   // Documentees ici plutot que supprimees : le lecteur du code doit savoir
   // pourquoi une source du §4 n'est pas branchee.
   skipped.push(
+    {
+      id: "oms:news",
+      reason:
+        "Le flux repond (HTTP 200, 25 entrees) mais sa derniere entree datait " +
+        "de 199 jours au 2026-09-13 : tres au-dela de la fenetre de fraicheur " +
+        "de 30 jours. Branche, il echouerait a chaque collecte et ferait porter " +
+        "a chaque article une mention « source indisponible » trompeuse — meme " +
+        "motif que fed:h41-notices.",
+    },
+    {
+      id: "smithsonian:volcans",
+      reason:
+        "volcano.si.edu/news/WeeklyVolcanoRSS.xml rend HTTP 403 « Request " +
+        "Rejected » au client du pipeline, alors qu'un autre client HTTP obtient " +
+        "200 avec le MEME agent declare (mesure du 2026-09-13) : le filtrage " +
+        "porte sur l'empreinte du client, pas sur ce qu'il annonce. Le " +
+        "contourner supposerait d'usurper un navigateur, ce que ce projet " +
+        "n'autorise pas.",
+    },
+    {
+      id: "consilium:communiques",
+      reason:
+        "Communiques du Conseil de l'Union europeenne : HTTP 403, page " +
+        "« Browser check » (2026-09-13). Meme refus d'un client honnete que " +
+        "le Departement d'Etat americain, le HCR et le ministere francais des " +
+        "Affaires etrangeres, tous ecartes pour la meme raison.",
+    },
+    {
+      id: "otan-aiea:flux",
+      reason:
+        "OTAN et AIEA : HTTP 404 sur les adresses de flux probees le " +
+        "2026-09-13. Aucune adresse de flux documentee n'a ete trouvee ; a " +
+        "rebrancher si l'une d'elles en publie une.",
+    },
+    {
+      id: "ocha:rss",
+      reason:
+        "Bureau de la coordination des affaires humanitaires (ONU) : HTTP 406 " +
+        "au 2026-09-13. Le volet humanitaire est couvert en attendant par ONU " +
+        "Info et GDACS.",
+    },
     {
       id: "reuters:rss",
       reason:
