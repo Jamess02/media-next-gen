@@ -186,6 +186,17 @@ describe("robustesse — une requete hostile ne tue pas le serveur", () => {
   });
 });
 
+describe("en-tetes de securite", () => {
+  it("pose nosniff et no-referrer sur un fichier servi", async () => {
+    // L'apercu sert des BROUILLONS, dont les liens de sources sont externes.
+    // Sans `no-referrer`, l'adresse d'un brouillon non relu partirait chez
+    // l'editeur du site cite.
+    const r = await fetch(`${base}/index.html`);
+    expect(r.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(r.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+});
+
 describe("reattachement DNS", () => {
   it("refuse une requete dont l'hote n'est pas la boucle locale", async () => {
     // L'apercu sert des BROUILLONS non relus. Les rendre lisibles depuis une

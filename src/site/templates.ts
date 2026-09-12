@@ -18,6 +18,8 @@ import {
   type SourceTier,
 } from "../protocol/constants.js";
 import type { ReviewRecord } from "../editorial/validation.js";
+import { createHash } from "node:crypto";
+
 import { formatFigure, rankedFigures } from "../protocol/figures.js";
 import { attributionsDeLicence } from "../protocol/sources-de-marche.js";
 import { interestsForUrls } from "../protocol/interests.js";
@@ -160,6 +162,42 @@ const THEME_BASCULE = `<script>
 })();
 </script>`;
 
+/**
+ * Empreinte d'un script inline, calculee sur le texte EXACT qui sera emis.
+ *
+ * La politique de securite du contenu n'autorise que les scripts dont
+ * l'empreinte est declaree. La calculer ici, depuis la constante elle-meme,
+ * evite le piege classique : une retouche du script, une empreinte oubliee, et
+ * la page casse chez le lecteur sans que rien ne l'annonce.
+ */
+function empreinteScript(balise: string): string {
+  const js = /<script>([\s\S]*?)<\/script>/.exec(balise)?.[1] ?? "";
+  return `'sha256-${createHash("sha256").update(js, "utf8").digest("base64")}'`;
+}
+
+/**
+ * Politique de securite du contenu — DERNIERE BARRIERE.
+ *
+ * Tout le contenu publie vient d'un modele, par des sources externes. Le rendu
+ * markdown maison echappe avant toute mise en forme, et c'est la vraie
+ * protection ; celle-ci couvre le jour ou cette premiere barriere cederait :
+ * un script injecte, n'ayant pas d'empreinte declaree, ne s'executerait pas.
+ *
+ * `frame-ancestors` n'y figure pas : une balise meta l'ignore. Le cadrage est
+ * refuse par en-tete, la ou un serveur en pose (studio, apercu).
+ */
+const CSP = [
+  "default-src 'none'",
+  "img-src 'self' data:",
+  // Les styles sont inline, par choix : une page qui porte son style ne peut
+  // pas s'afficher nue si la feuille manque.
+  "style-src 'unsafe-inline'",
+  `script-src ${empreinteScript(THEME_INIT)} ${empreinteScript(THEME_BASCULE)}`,
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+
 export function page({
   title,
   depth = 0,
@@ -189,6 +227,7 @@ export function page({
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${CSP}">
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(resume)}">
 ${canonique === undefined ? "" : `<link rel="canonical" href="${escapeHtml(canonique)}">`}

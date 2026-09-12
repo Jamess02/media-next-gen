@@ -18,7 +18,7 @@
  * fait, y compris et surtout quand il refuse de publier.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -53,9 +53,72 @@ const RACINE = join(HERE, "..", "..");
 const OUTPUT_DIR = join(RACINE, "output");
 const AUDIT_JOURNAL = join(RACINE, "audit", "journal.jsonl");
 
+/**
+ * En-tetes de securite, sur CHAQUE reponse.
+ *
+ * `no-referrer` n'est pas cosmetique ICI : le jeton de session voyage dans
+ * l'URL — c'est ce qui permet a la page de le distribuer sans cookie. Sans cet
+ * en-tete, le premier lien externe suivi depuis un apercu l'emporterait chez
+ * l'editeur du site cite, dans le `Referer`.
+ *
+ * `nosniff` empeche un navigateur d'executer comme script ce qui est servi
+ * comme donnee ; `SAMEORIGIN` empeche un site tiers d'encadrer le studio pour
+ * faire cliquer l'editeur a son insu.
+ */
+const SECURITE: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "SAMEORIGIN",
+};
+
+/** Politique minimale : une reponse de donnees n'a rien a charger. */
+const CSP_DONNEES = "default-src 'none'; frame-ancestors 'self'";
+
+/**
+ * Politique de securite du contenu, calculee sur le HTML qui PART.
+ *
+ * Les empreintes sont prises sur les scripts reellement emis : une retouche de
+ * la page ne peut pas desynchroniser la politique et casser le studio. Tout
+ * script qui n'y figure pas — donc tout script injecte — ne s'execute pas.
+ */
+function cspDeLaPage(html: string): string {
+  const empreintes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    .map((m) => `'sha256-${createHash("sha256").update(m[1] ?? "", "utf8").digest("base64")}'`)
+    .join(" ");
+  return [
+    "default-src 'none'",
+    "img-src 'self' data:",
+    "style-src 'unsafe-inline'",
+    `script-src ${empreintes}`,
+    "connect-src 'self'",
+    // L'apercu d'un brouillon est affiche dans un cadre de meme origine.
+    "frame-src 'self'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+}
+
+/**
+ * Compare deux jetons en TEMPS CONSTANT.
+ *
+ * Le jeton est la seule authentification du studio, et il vit dans le
+ * navigateur de l'editeur, ou une page tierce peut mesurer des temps de
+ * reponse. Une comparaison de chaines s'arrete au premier caractere
+ * different : elle laisse fuir, octet par octet, de quoi le reconstituer.
+ *
+ * Un jeton vide ne vaut jamais : c'est ce que rend un parametre absent.
+ */
+export function jetonValide(attendu: string, recu: string): boolean {
+  if (attendu.length === 0 || attendu.length !== recu.length) return false;
+  return timingSafeEqual(Buffer.from(attendu, "utf8"), Buffer.from(recu, "utf8"));
+}
+
 const json = (res: ServerResponse, code: number, data: unknown): void => {
   const body = JSON.stringify(data);
   res.writeHead(code, {
+    ...SECURITE,
+    "content-security-policy": CSP_DONNEES,
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
   });
@@ -166,6 +229,8 @@ async function executer(
   params: URLSearchParams,
 ): Promise<void> {
   res.writeHead(200, {
+    ...SECURITE,
+    "content-security-policy": CSP_DONNEES,
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache",
     connection: "keep-alive",
@@ -379,6 +444,8 @@ async function executerVagueSse(
   params: URLSearchParams,
 ): Promise<void> {
   res.writeHead(200, {
+    ...SECURITE,
+    "content-security-policy": CSP_DONNEES,
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache",
     connection: "keep-alive",
@@ -541,7 +608,7 @@ export async function startStudio(
 
         // La PAGE reste ouvrable sans jeton : c'est elle qui le distribue.
         // Tout le reste l'exige.
-        if (url.pathname !== "/" && url.searchParams.get("jeton") !== jeton) {
+        if (url.pathname !== "/" && !jetonValide(jeton, url.searchParams.get("jeton") ?? "")) {
           json(res, 403, {
             erreur:
               "jeton de session absent ou invalide. Ouvrir le studio depuis la page servie par ce serveur.",
@@ -551,8 +618,14 @@ export async function startStudio(
 
         switch (url.pathname) {
           case "/":
-            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-            res.end(STUDIO_PAGE.replace("__JETON__", jeton));
+            const pageHtml = STUDIO_PAGE.replace("__JETON__", jeton);
+            res.writeHead(200, {
+              ...SECURITE,
+              "content-security-policy": cspDeLaPage(pageHtml),
+              "content-type": "text/html; charset=utf-8",
+              "cache-control": "no-store",
+            });
+            res.end(pageHtml);
             return;
           case "/apercu": {
             // L'apercu emprunte le MEME gabarit que le site, pas un gabarit
@@ -597,6 +670,8 @@ export async function startStudio(
               html = html.replace(/<html lang="fr">/, `<html lang="fr" data-theme="${theme}">`);
             }
             res.writeHead(200, {
+              ...SECURITE,
+              "content-security-policy": cspDeLaPage(html),
               "content-type": "text/html; charset=utf-8",
               "cache-control": "no-store",
             });

@@ -20,10 +20,11 @@
  * Le studio n'avait aucune de ces protections, ni meme de controle de methode.
  */
 
+import { createHash } from "node:crypto";
 import { request } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { startStudio } from "../src/studio/server.js";
+import { jetonValide, startStudio } from "../src/studio/server.js";
 
 let arreter: (() => Promise<void>) | undefined;
 
@@ -79,6 +80,62 @@ function requeteBrute(
     r.end();
   });
 }
+
+describe("studio — en-tetes de securite", () => {
+  /**
+   * Revue du 2026-09-12, a partir de cinq articles sur la securite du code
+   * genere par IA. Leur reproche recurrent : les en-tetes manquants, et les
+   * secrets qui voyagent dans des URLs.
+   *
+   * Ici le jeton de session EST dans l'URL — c'est ce qui permet a la page de
+   * le distribuer sans cookie. Il ne doit donc jamais partir dans un en-tete
+   * `Referer`, ni la page etre encadrable par un site tiers.
+   */
+  it("pose nosniff, no-referrer, cadrage et politique de contenu sur la page", async () => {
+    const { base } = await studio();
+    const r = await fetch(`${base}/`);
+    expect(r.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(r.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(r.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    const csp = r.headers.get("content-security-policy") ?? "";
+    expect(csp).toMatch(/default-src 'none'/);
+    expect(csp).toMatch(/script-src 'sha256-/);
+    expect(csp).toMatch(/frame-ancestors 'self'/);
+
+    // CHAQUE script de la page doit etre couvert. Une empreinte oubliee ne se
+    // verrait pas ici — elle se verrait dans le navigateur de l'editeur, par
+    // une interface qui ne repond plus.
+    const html = await r.text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      const empreinte = createHash("sha256").update(script, "utf8").digest("base64");
+      expect(csp, "script du studio non couvert : l'interface casserait").toContain(
+        `'sha256-${empreinte}'`,
+      );
+    }
+  });
+
+  it("les pose aussi sur les reponses de l'API", async () => {
+    const { base, jeton } = await studio();
+    const r = await fetch(`${base}/api/etat?jeton=${jeton}`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(r.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+});
+
+describe("studio — comparaison du jeton", () => {
+  it("refuse une longueur differente, un jeton faux, et le jeton vide", () => {
+    // Comparaison a temps constant : le studio n'a que ce jeton pour
+    // authentifier, et il vit dans le navigateur de l'editeur, ou une page
+    // tierce peut mesurer des temps de reponse.
+    expect(jetonValide("a1b2c3", "a1b2c3")).toBe(true);
+    expect(jetonValide("a1b2c3", "a1b2c4")).toBe(false);
+    expect(jetonValide("a1b2c3", "a1b2c")).toBe(false);
+    expect(jetonValide("", "")).toBe(false);
+  });
+});
 
 describe("studio — reattachement DNS", () => {
   it("refuse une requete dont l'en-tete Host n'est pas la boucle locale", async () => {

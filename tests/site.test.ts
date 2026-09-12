@@ -7,6 +7,7 @@
  * une source hostile peut executer du code chez les lecteurs.
  */
 
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -199,6 +200,23 @@ describe("page d'article", () => {
     );
     expect(html).toMatch(/class="revise"/);
     expect(html).toMatch(/historique des corrections/);
+  });
+
+  it("porte une politique de securite du contenu, avec l'empreinte de CHAQUE script", () => {
+    // Derniere barriere si l'echappement cedait un jour : meme injecte, un
+    // script sans empreinte declaree ne s'executerait pas. L'empreinte est
+    // calculee ici a partir du HTML reellement produit — une politique qui ne
+    // couvrirait pas le script de theme casserait la page chez le lecteur.
+    const html = articlePage(article());
+    expect(html).toMatch(/<meta http-equiv="Content-Security-Policy"/);
+    expect(html).toMatch(/default-src 'none'/);
+
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      const empreinte = createHash("sha256").update(script, "utf8").digest("base64");
+      expect(html, "script non couvert par la politique").toContain(`'sha256-${empreinte}'`);
+    }
   });
 
   it("affiche l'attribution exigee par la licence CoinGecko, pres des chiffres", () => {

@@ -337,7 +337,7 @@ Pour prévisualiser des brouillons en local : `npm run dev -- site --brouillons`
 
 ## Sécurité
 
-Le pipeline ingère du texte contrôlé par des tiers (résumés de sources, réponses d'API) et le republie. Neuf failles confirmées par test ont été corrigées. Les six dernières l'ont été **en TDD** : test écrit et vu échouer d'abord — un test écrit après coup prouve que le code fait ce qu'il fait, pas qu'il fait ce qu'il doit. Voir [securite-api](tests/securite-api.test.ts), [securite-agents](tests/securite-agents.test.ts), [securite-serveurs](tests/securite-serveurs.test.ts).
+Le pipeline ingère du texte contrôlé par des tiers (résumés de sources, réponses d'API) et le republie. Les failles confirmées par test et corrigées sont listées ci-dessous. Les six dernières l'ont été **en TDD** : test écrit et vu échouer d'abord — un test écrit après coup prouve que le code fait ce qu'il fait, pas qu'il fait ce qu'il doit. Voir [securite-api](tests/securite-api.test.ts), [securite-agents](tests/securite-agents.test.ts), [securite-serveurs](tests/securite-serveurs.test.ts).
 
 | Faille | Traitement |
 |---|---|
@@ -350,6 +350,9 @@ Le pipeline ingère du texte contrôlé par des tiers (résumés de sources, ré
 | `z.url()` acceptait `javascript:`, `data:`, `file:` et les IP de métadonnées cloud — XSS une fois rendu en lien sur le site (§5.4) | [url.ts](src/protocol/url.ts) : **liste blanche** `http`/`https`, rejet des hôtes non routables et des identifiants intégrés |
 | Traversée de chemin via l'identifiant d'article dans `revise`, qui **écrit** des fichiers | [revision.ts](src/editorial/revision.ts) : format d'identifiant validé **et** confinement du chemin résolu — deux barrières redondantes |
 | Injection markdown/HTML depuis le texte des sources | [markdown.ts](src/editorial/markdown.ts) : échappement des champs de données, neutralisation ciblée du corps rédigé |
+| **Le jeton du studio voyage dans l'URL** — c'est ce qui permet à la page de le distribuer sans cookie. Un clic sur un lien externe depuis un aperçu l'emportait dans l'en-tête `Referer`, chez l'éditeur du site cité | [server.ts](src/studio/server.ts) : `Referrer-Policy: no-referrer`, `nosniff` et `SAMEORIGIN` sur **chaque** réponse. Idem pour l'aperçu, qui sert des brouillons non relus |
+| Le jeton était comparé caractère par caractère : la comparaison s'arrête au premier écart, ce qui le laisse reconstituer par mesure du temps de réponse | `jetonValide` compare en **temps constant**, et refuse aussi bien une longueur différente que le jeton vide |
+| Aucune politique de sécurité du contenu : si l'échappement cédait un jour, un script injecté s'exécuterait | Politique calculée sur le HTML **réellement émis**, avec l'empreinte de chaque script inline — site ([templates.ts](src/site/templates.ts)) et studio. Un test vérifie que chaque script est couvert : une empreinte oubliée casserait la page au lieu de passer inaperçue |
 
 **Ce qui résiste par construction — et c'est testé contre un modèle *déjà compromis*.** Les doublures de [securite-agents](tests/securite-agents.test.ts) jouent un agent qui a obéi à l'injection : un test qui ne simulerait qu'un modèle docile ne prouverait rien. Vérifié — le Veilleur ne peut pas faire entrer une URL absente de la collecte, l'Analyste ne peut pas déclarer un tier (il vient du registre de domaines), le champ `claims` du Rédacteur est **refusé et non ignoré**, l'Éditeur refuse un article fabriqué qui contourne toute la chaîne, et un `__proto__` venu d'un flux public ne contamine pas `Object.prototype`. La structure de preuve n'est pas manipulable par du texte.
 

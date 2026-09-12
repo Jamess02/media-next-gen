@@ -35,6 +35,21 @@ const TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+/**
+ * En-tetes de securite, sur CHAQUE reponse — y compris les refus.
+ *
+ * `nosniff` : sans lui, un navigateur peut deviner le type d'un fichier et
+ * executer comme script ce qui etait servi comme texte.
+ *
+ * `no-referrer` : l'apercu sert des BROUILLONS que personne n'a relus, et
+ * leurs liens de sources sont externes. Sans cet en-tete, l'adresse du
+ * brouillon partirait chez l'editeur du site cite au premier clic.
+ */
+const SECURITE: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+};
+
 export interface ServeOptions {
   root: string;
   port?: number;
@@ -60,7 +75,7 @@ export async function serveSite(options: ServeOptions): Promise<ServeInstance> {
         // relus : les rendre lisibles depuis une page tierce est une fuite,
         // meme sans effet de bord.
         if (!hoteLocal(req.headers.host)) {
-          res.writeHead(403).end("hote non local");
+          res.writeHead(403, SECURITE).end("hote non local");
           return;
         }
 
@@ -71,7 +86,7 @@ export async function serveSite(options: ServeOptions): Promise<ServeInstance> {
             new URL(req.url ?? "/", "http://127.0.0.1").pathname,
           );
         } catch {
-          res.writeHead(400).end("requete malformee");
+          res.writeHead(400, SECURITE).end("requete malformee");
           return;
         }
 
@@ -84,7 +99,7 @@ export async function serveSite(options: ServeOptions): Promise<ServeInstance> {
         // Confinement : le chemin resolu doit rester sous la racine. Sans ce
         // controle, `GET /../../.env` servirait un fichier du projet.
         if (cible !== racine && !cible.startsWith(racine + sep)) {
-          res.writeHead(403).end("hors du dossier publie");
+          res.writeHead(403, SECURITE).end("hors du dossier publie");
           return;
         }
 
@@ -101,12 +116,13 @@ export async function serveSite(options: ServeOptions): Promise<ServeInstance> {
       try {
         await stat(fichier);
       } catch {
-        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        res.writeHead(404, { ...SECURITE, "content-type": "text/plain; charset=utf-8" });
         res.end("404");
         return;
       }
 
         res.writeHead(fichier.endsWith("404.html") ? 404 : 200, {
+          ...SECURITE,
           "content-type": TYPES[extname(fichier)] ?? "application/octet-stream",
           // Apercu local : on ne veut jamais relire une version obsolete apres
           // avoir regenere le site.
@@ -116,7 +132,7 @@ export async function serveSite(options: ServeOptions): Promise<ServeInstance> {
       } catch {
         // Le detail n'est pas rendu au client : un message d'erreur de systeme
         // de fichiers revele des chemins absolus.
-        if (!res.headersSent) res.writeHead(400).end("requete invalide");
+        if (!res.headersSent) res.writeHead(400, SECURITE).end("requete invalide");
       }
     })();
   });
