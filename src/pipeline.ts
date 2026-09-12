@@ -499,7 +499,11 @@ export class EditorialPipeline {
         this.onStage(
           "redaction",
           `chapitre ${rang + 1}/${chapitres.length} — "${chapitre.titre}" ` +
-            `(${morceau.corps.split(/s+/).filter(Boolean).length} mots)`,
+            // `/\s+/`, pas `/s+/` : le motif sans barre oblique inverse
+            // decoupait sur la LETTRE « s » et annoncait des chapitres deux
+            // fois trop courts. Le gate, lui, comptait juste — d'ou un journal
+            // qui contredisait la publication.
+            `(${morceau.corps.split(/\s+/).filter(Boolean).length} mots)`,
         );
       }
 
