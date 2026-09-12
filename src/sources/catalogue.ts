@@ -279,7 +279,13 @@ export function buildSourceCatalogue(
     rssAdapter({
       id: "haaretz:all",
       source: "Haaretz",
-      url: "https://www.haaretz.com/cmlink/1.4605102",
+      // ADRESSE FINALE, et non l'alias `cmlink` : celui-ci rend un 301 vers
+      // du HTTP EN CLAIR, que `safeFetch` refuse — une donnee alterable en
+      // transit ne peut pas fonder une claim. Resultat : Haaretz echouait a
+      // CHAQUE collecte, et chaque article portait une mention « source
+      // indisponible » pour une source qui, elle, repondait tres bien.
+      // MESURE du 2026-09-13 : l'adresse ci-dessous rend 200 en https, 100 entrees.
+      url: "https://www.haaretz.com/srv/haaretz-latest-headlines",
       describes: "Fil general Haaretz",
       type: "presse",
       limit: 3,
