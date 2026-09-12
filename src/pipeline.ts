@@ -60,6 +60,7 @@ import {
   evaluerSujet,
   type Investigation,
 } from "./planification/investigation.js";
+import { unifierUnitesDesFigures } from "./protocol/figures.js";
 import { attributionsExigees } from "./protocol/sources-de-marche.js";
 import { SourceGateway, estPertinent } from "./sources/gateway.js";
 import type { SourceAdapter } from "./sources/types.js";
@@ -337,6 +338,22 @@ export class EditorialPipeline {
       adjustments: [...usages.ajustements, ...gate.adjustments],
     };
 
+    // EP-006 — des chiffres d'unites differentes ne se classent pas ensemble.
+    //
+    // Applique ICI, avant la redaction, et non au controle final : un article
+    // de seisme portant une magnitude ET une population exposee etait refuse
+    // apres tous les appels au modele. Le chiffre minoritaire quitte le
+    // TABLEAU ; il reste dans le texte de l'affirmation, et le retrait est
+    // declare au lecteur.
+    const unites = unifierUnitesDesFigures(gate.accepted);
+    if (unites.retirees.length > 0) {
+      this.onStage(
+        "fact-checking",
+        `${unites.retirees.length} chiffre(s) retire(s) du tableau : unites non comparables (EP-006)`,
+      );
+      gate = { ...gate, accepted: [...unites.claims] };
+    }
+
     /* --- Mode prospectif : au moins un scenario ---------------------------- */
     // Un article annonce prospectif qui ne contiendrait que des constats
     // tromperait sur ce qu'il est. Le controle est ici et non dans `rules.ts` :
@@ -606,6 +623,9 @@ export class EditorialPipeline {
       // que des rejets (§7). Confondre les deux ferait annoncer au lecteur
       // comme "retiree" une claim qu'il lit dans l'article.
       ...gate.adjustments.map((a) => `Ajustement du fact-checker — ${a}`),
+      // Un chiffre retire du tableau ne disparait pas en silence : le lecteur
+      // doit savoir qu'il a ete ecarte du classement, et pourquoi.
+      ...unites.retirees,
       // Le lecteur doit voir qu'un chiffre n'est pas adosse aux sources
       // citees : c'est une information sur la solidite de ce qu'il lit.
       ...ungrounded.map((v) => v.message),
