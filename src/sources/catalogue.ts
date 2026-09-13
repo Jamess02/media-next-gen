@@ -171,10 +171,38 @@ export function buildSourceCatalogue(
     // --- Tier 1, sans clef ------------------------------------------------
     worldBankAdapter({ country: "EMU", indicator: "FP.CPI.TOTL.ZG" }),
     worldBankAdapter({ country: "WLD", indicator: "NY.GDP.MKTP.KD.ZG" }),
+    // Deux series choisies pour ce que le media couvre, et MESUREES le
+    // 2026-09-13 avant d'etre branchees : depenses militaires mondiales
+    // (5 annees sur 6 renseignees, 2,47 % du PIB en 2024) et aide publique au
+    // developpement recue (4 sur 6, derniere valeur 2023). La premiere dit ce
+    // qu'un monde arme coute ; la seconde, ce que la reponse aux crises pese.
+    //
+    // La dette publique (GC.DOD.TOTL.GD.ZS) N'EST PAS branchee : mesuree le
+    // meme jour, elle rend ZERO valeur au niveau mondial. Un adaptateur qui
+    // echoue a chaque collecte vaut moins que pas d'adaptateur du tout.
+    worldBankAdapter({ country: "WLD", indicator: "MS.MIL.XPND.GD.ZS" }),
+    worldBankAdapter({ country: "WLD", indicator: "DT.ODA.ODAT.CD" }),
     imfAdapter({
       country: "FRA",
       indicator: "NGDP_RPCH",
       label: "Croissance du PIB reel",
+    }),
+    // La dette publique brute, en pourcentage du PIB : meme unite que la
+    // croissance, donc comparable sans violer EP-006. MESURE du 2026-09-13 :
+    // 52 annees de serie, derniere valeur observee 116 % pour 2025.
+    imfAdapter({
+      country: "FRA",
+      indicator: "GGXWDG_NGDP",
+      label: "Dette publique brute, en pourcentage du PIB",
+    }),
+    // Le meme indicateur pour les Etats-Unis : 123,9 % du PIB en 2025, contre
+    // 116 % pour la France (mesure du 2026-09-13). Deux valeurs de MEME unite
+    // et de meme annee se comparent legitimement — c'est precisement ce que
+    // EP-006 exige avant d'aligner deux chiffres.
+    imfAdapter({
+      country: "USA",
+      indicator: "GGXWDG_NGDP",
+      label: "Dette publique brute, en pourcentage du PIB",
     }),
     eurostatAdapter({
       dataset: "prc_hicp_manr",
@@ -449,6 +477,18 @@ export function buildSourceCatalogue(
   // Documentees ici plutot que supprimees : le lecteur du code doit savoir
   // pourquoi une source du §4 n'est pas branchee.
   skipped.push(
+    {
+      id: "usgs:alerte-pager",
+      reason:
+        "Un adaptateur filtrant les seismes sur le niveau d'alerte PAGER serait " +
+        "le plus interessant editorialement — l'alerte dit l'impact humain " +
+        "attendu, pas seulement la magnitude. MESURE du 2026-09-13 : sur douze " +
+        "mois, 143 seismes de magnitude 6 ou plus, mais SIX alertes orange et " +
+        "QUATRE rouges, soit une poignee par an. Branche, il echouerait a " +
+        "presque chaque collecte et ferait porter a chaque article une mention " +
+        "« source indisponible » trompeuse — le piege du flux h41 de la Fed. " +
+        "Le seuil de magnitude 6, lui, rend 10 evenements sur 30 jours.",
+    },
     {
       id: "oms:news",
       reason:

@@ -390,6 +390,29 @@ describe("catalogue des sources", () => {
     expect(motif("consilium:communiques")).toMatch(/403/);
   });
 
+  it("couvre PLUSIEURS series par emetteur, pas une seule", () => {
+    // USGS, FMI et Banque mondiale etaient branches, mais chacun sur une ou
+    // deux series figees. Elargir leur couverture, c'est donner au pipeline de
+    // quoi expliquer ce qu'un evenement COUTE — la demande de l'editeur du
+    // 2026-09-13 sur les consequences et les reponses publiques.
+    const ids = buildSourceCatalogue({}).adapters.map((a) => a.id);
+    expect(ids).toContain("worldbank:WLD:MS.MIL.XPND.GD.ZS");
+    expect(ids).toContain("worldbank:WLD:DT.ODA.ODAT.CD");
+    expect(ids).toContain("imf:FRA:GGXWDG_NGDP");
+    expect(ids).toContain("imf:USA:GGXWDG_NGDP");
+  });
+
+  it("refuse un filtre sismique qui echouerait presque toujours, et le mesure", () => {
+    // MESURE du 2026-09-13 : magnitude >= 6 rend 10 seismes sur 30 jours, mais
+    // le filtre d'alerte PAGER orange n'en rend que 6 par AN. Branche, il
+    // echouerait a presque chaque collecte et ferait porter a chaque article
+    // une mention « source indisponible » — le piege du flux h41 de la Fed.
+    const { skipped } = buildSourceCatalogue({});
+    const raison = skipped.find((s) => s.id === "usgs:alerte-pager")?.reason ?? "";
+    expect(raison).toMatch(/2026-09-13/);
+    expect(raison).toMatch(/par an/);
+  });
+
   it("branche les deux flux de la SEC, sans clef", () => {
     const ids = buildSourceCatalogue({}).adapters.map((a) => a.id);
     expect(ids).toContain("sec:communiques");
