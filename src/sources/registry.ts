@@ -58,6 +58,10 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "nasa.gov", tier: 1, name: "NASA" },
   { domain: "ofac.treasury.gov", tier: 1, name: "OFAC" },
   { domain: "treasury.gov", tier: 1, name: "US Treasury" },
+  // Le regulateur des marches americains publie ses propres communiques, ses
+  // propres decisions et les depots qu'il recoit : il est l'emetteur, pas un
+  // relais. Le suffixe couvre aussi `data.sec.gov`, son hote de donnees.
+  { domain: "sec.gov", tier: 1, name: "SEC (Securities and Exchange Commission)" },
   { domain: "reliefweb.int", tier: 1, name: "ReliefWeb (ONU)" },
   { domain: "boj.or.jp", tier: 1, name: "Banque du Japon" },
   {

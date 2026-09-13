@@ -16,6 +16,13 @@ describe("classification en tiers", () => {
     expect(classifySource("https://reliefweb.int/report/x").tier).toBe(1);
   });
 
+  it("classe la SEC en tier 1, son hote de donnees compris", () => {
+    // Le regulateur publie ses propres communiques, ses propres decisions et
+    // ses propres depots : il est l'emetteur, pas un relais.
+    expect(classifySource("https://www.sec.gov/newsroom/press-releases/2026-87").tier).toBe(1);
+    expect(classifySource("https://data.sec.gov/submissions/CIK0000320193.json").tier).toBe(1);
+  });
+
   it("classe les agregats publics sources en tier 2", () => {
     expect(classifySource("https://www.gdeltproject.org/data.html").tier).toBe(2);
     expect(classifySource("https://l0g.fr/protocole-editorial/").tier).toBe(2);

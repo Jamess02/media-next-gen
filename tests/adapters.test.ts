@@ -390,6 +390,33 @@ describe("catalogue des sources", () => {
     expect(motif("consilium:communiques")).toMatch(/403/);
   });
 
+  it("branche les deux flux de la SEC, sans clef", () => {
+    const ids = buildSourceCatalogue({}).adapters.map((a) => a.id);
+    expect(ids).toContain("sec:communiques");
+    expect(ids).toContain("sec:discours");
+  });
+
+  it("ne dit plus que la SEC est inaccessible : la mesure dit l'inverse", () => {
+    // Le catalogue affirmait un HTTP 403 « sans User-Agent nominatif », mesure
+    // du 2026-09-02. Au 2026-09-13, TOUTES les surfaces repondent 200 au meme
+    // agent honnete, EDGAR et data.sec.gov compris. Un motif d'ecart perime
+    // est pire qu'absent : il fait renoncer a une source disponible.
+    const { skipped } = buildSourceCatalogue({});
+    for (const s of skipped.filter((x) => x.id.startsWith("sec"))) {
+      // L'invariant n'est pas « ne jamais ecrire 403 » — rappeler une mesure
+      // perimee est utile — mais « ne plus PRESENTER l'acces comme refuse ».
+      expect(s.reason, s.id).not.toMatch(/rendent HTTP 403|403 sans|exige une adresse/);
+      // Et toute raison d'ecarter la SEC doit porter la date de sa mesure :
+      // c'est ce qui permet de reperer la prochaine qui se perimera.
+      expect(s.reason, s.id).toMatch(/2026-09-13/);
+    }
+    // Ce qui manque a EDGAR n'est plus un acces, mais un CHOIX editorial :
+    // quelle entreprise, quel formulaire — comme pour Comtrade.
+    expect(skipped.find((s) => s.id === "sec-edgar:depots")?.reason).toMatch(
+      /decision editoriale|choix editorial/i,
+    );
+  });
+
   it("documente les sources ecartees pour raisons externes", () => {
     const { skipped } = buildSourceCatalogue({});
     const ids = skipped.map((s) => s.id);

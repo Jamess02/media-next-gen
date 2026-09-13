@@ -213,6 +213,39 @@ export function buildSourceCatalogue(
       limit: 3,
     }),
 
+    // --- Tier 1 : regulateur des marches americains ------------------------
+    //
+    // MESURE du 2026-09-13 : toutes les surfaces de la SEC repondent HTTP 200
+    // a notre agent declare — flux RSS, flux Atom d'EDGAR et API data.sec.gov.
+    // Le catalogue affirmait l'inverse depuis le 2026-09-02 (« 403 sans
+    // User-Agent nominatif ») : un motif d'ecart PERIME est pire qu'absent,
+    // puisqu'il fait renoncer a une source disponible. Il est corrige plus bas.
+    //
+    // La politique d'acces automatise de la SEC demande neanmoins que l'agent
+    // porte une adresse de contact. Le notre annonce le projet, sans adresse :
+    // a completer si l'editeur accepte d'en rendre une publique.
+    rssAdapter({
+      id: "sec:communiques",
+      source: "SEC",
+      url: "https://www.sec.gov/news/pressreleases.rss",
+      describes:
+        "Communiques de la SEC : procedures d'application, propositions de regles, coordinations internationales",
+      type: "communique-regulateur",
+      limit: 3,
+    }),
+    rssAdapter({
+      id: "sec:discours",
+      source: "SEC",
+      url: "https://www.sec.gov/news/speeches-statements.rss",
+      describes: "Discours et declarations des commissaires de la SEC",
+      type: "declaration-regulateur",
+      limit: 2,
+      caveat:
+        "Position PERSONNELLE d'un commissaire, et non une decision de la " +
+        "Commission : a citer comme telle (§3). Un discours engage celui qui " +
+        "le prononce, pas l'institution.",
+    }),
+
     // --- Tier 2 : geopolitique et evenementiel -----------------------------
     //
     // Demande de l'editeur du 2026-09-13 : davantage de geopolitique, et
@@ -546,12 +579,27 @@ export function buildSourceCatalogue(
         "l'absence d'adaptateur.",
     },
     {
-      id: "sec-edgar:atom",
+      id: "sec-edgar:depots",
       reason:
-        "Les flux Atom d'EDGAR (browse-edgar ...&output=atom) rendent HTTP 403 " +
-        "sans en-tete `User-Agent` nominatif. La SEC exige une adresse de contact " +
-        "reelle, publiquement declaree, dans chaque requete. En attente de " +
-        "l'adresse que l'editeur accepte de rendre publique.",
+        "EDGAR REPOND : le flux Atom des depots du jour rend 40 entrees, et " +
+        "data.sec.gov rend les depots comme les faits XBRL d'une entreprise " +
+        "(mesure du 2026-09-13, HTTP 200 avec notre agent declare). Le motif " +
+        "precedent — un 403 mesure le 2026-09-02 — n'a plus cours. Ce qui " +
+        "manque n'est donc pas un acces mais une DECISION EDITORIALE : quelle " +
+        "entreprise, quel formulaire, quelle serie. Brancher le flux entier " +
+        "deverserait un torrent de depots sans rapport avec le sujet traite, " +
+        "meme motif que le catalogue de jeux de donnees de data.economie.gouv.fr.",
+    },
+    {
+      id: "sec:decisions-administratives",
+      reason:
+        "Le flux des decisions administratives (rss/litigation/admin.xml) " +
+        "repond au 2026-09-13 — 25 entrees, la plus recente datant de deux " +
+        "jours — mais chaque entree " +
+        "se reduit a un NOM D'ENTREPRISE et pointe vers un PDF : aucun texte " +
+        "resumable, et un lien que le pipeline ne sait pas lire. L'observation " +
+        "n'y porterait qu'un nom propre, de quoi faire ecrire une imputation " +
+        "sans fait — exactement ce que le traitement d'OFAC refuse deja.",
     },
     {
       id: "dataroma:portfolios",
