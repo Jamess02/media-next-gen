@@ -19,7 +19,7 @@ import {
   SOURCE_TIERS,
   type ArticleMode,
 } from "../protocol/constants.js";
-import { FigureSchema, type RawEvent } from "../protocol/schema.js";
+import { FigureSchema, InfographieSchema, type RawEvent } from "../protocol/schema.js";
 import { Agent, asJson } from "./base.js";
 
 /**
@@ -60,6 +60,19 @@ export const AnalysteOutputSchema = z
     narrative_vs_data: z.string(),
     /** §5.2 — revisions, delais de publication, ruptures de serie. */
     publication_caveats: z.array(z.string()),
+    /**
+     * Donnees du graphique d'ecart (§7 `infographie`), quand une anticipation
+     * datee et sourcee existe.
+     *
+     * MEME RAISON QUE `figure` CI-DESSUS, et le precedent est recent : un champ
+     * absent de ce schema est inatteignable, parce que le format de reponse
+     * envoye au modele ne le contient pas. Tout le reste de la chaine — calcul,
+     * rendu, registre, contrat, page — etait pret avant cette ligne.
+     *
+     * OPTIONNEL, et c'est le cas NORMAL : la plupart des sujets n'ont aucune
+     * anticipation datee a confronter, et le brief refuse alors tout ecart.
+     */
+    infographie: InfographieSchema.optional(),
   })
   .strict();
 
@@ -73,7 +86,7 @@ export interface AnalysteInput {
   mode: ArticleMode;
 }
 
-const INSTRUCTIONS = `
+export const INSTRUCTIONS_ANALYSTE = `
 Tu produis des claims CANDIDATES a partir des observations retenues.
 
 Typage (§3), applique strictement :
@@ -183,6 +196,47 @@ REFUSE une claim qui ne le respecte pas :
   conserver (EP-007) : « a recule de 2 % sur Binance » est un constat, « un
   point d'entree » est un conseil.
 
+INFOGRAPHIE — l'ecart entre ce qui etait ANTICIPE et ce qui est PUBLIE.
+
+Quand le sujet est economique et qu'il existe une anticipation DATEE ET
+SOURCEE, ajoute un champ \`infographie\` a la racine de ta reponse :
+
+  {
+    "indicateur": "inflation_zone_euro_hicp",
+    "libelle": "Inflation annuelle, zone euro (IPCH)",
+    "unite": "points de %",
+    "anticipe": { "value": 2.1, "source": "Projections BCE de juin 2026", "date": "2026-06-12" },
+    "realise": { "value": 2.47, "source": "Eurostat, prc_hicp_manr", "date": "2026-07-13" },
+    "composantes": [
+      { "name": "energie", "value": 0.25, "method": "publiee", "source": "Eurostat, contributions" }
+    ]
+  }
+
+Regles, et le gate les applique :
+- SANS ANTICIPATION DATEE ET SOURCEE, PAS D'INFOGRAPHIE. Omets simplement le
+  champ : l'article presentera l'evolution simple. Comparer un chiffre publie a
+  une attente dont on ignore l'origine et la date fabrique une surprise apres
+  coup.
+- \`date\` s'ecrit AAAA-MM-JJ : le jour ou l'anticipation a ete FIGEE, et le jour
+  ou le realise a ete PUBLIE. Pas le jour ou tu les lis.
+- Tu ne declares NI l'ecart NI le residu. Ils sont CALCULES a partir de tes
+  valeurs. Tu fournis ce qui est mesure, jamais la difference.
+- 0 a 3 composantes. Ce qu'elles n'expliquent pas devient un RESIDU, affiche au
+  lecteur — une decomposition n'explique jamais tout.
+- N'INVENTE JAMAIS UNE DECOMPOSITION. Zero composante est une reponse valable :
+  mieux vaut l'ecart nu qu'une repartition fabriquee pour remplir un schema.
+- Chaque composante porte sa \`method\` : \`publiee\` (contribution officielle
+  d'un organisme), \`estimee\` (calcul interne, dont la methode est decrite dans
+  \`source\`) ou \`incertaine\`. Une estimation interne est etiquetee comme telle
+  dans le graphique ET dans le texte ; elle n'est jamais presentee comme un
+  chiffre officiel.
+- \`anticipe\` et \`realise\` partagent l'unite de l'indicateur. Deux unites
+  differentes ne se soustraient pas (EP-006).
+- NE PRESENTE PAS DES COMPOSANTES CORRELEES COMME INDEPENDANTES. Quand une
+  interaction connue existe — energie, inflation et taux se tiennent —, dis-la
+  dans \`publication_caveats\`. Les additionner en silence suggererait des causes
+  separees la ou elles se repondent.
+
 Contraintes :
 - Au plus 3 claims (§3). Si le materiau en porte davantage, garde les 3 plus
   structurantes et ignore le reste.
@@ -196,7 +250,7 @@ Contraintes :
 
 export class Analyste extends Agent<AnalysteInput, AnalysteOutput> {
   readonly role = "analyste" as const;
-  protected readonly instructions = INSTRUCTIONS;
+  protected readonly instructions = INSTRUCTIONS_ANALYSTE;
   protected readonly outputSchema = AnalysteOutputSchema;
   protected readonly schemaName = "AnalysteOutput";
 

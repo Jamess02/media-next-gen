@@ -662,6 +662,13 @@ export class EditorialPipeline {
       // de la presence des chapitres rendrait le controle circulaire.
       mode: this.mode,
       ...(enqueteRedigee === undefined ? {} : { chapitres: enqueteRedigee.chapitres }),
+      // Le graphique d'ecart voyage de l'Analyste jusqu'a l'article, sans
+      // passer par le Redacteur : ce sont des donnees, et les faire transiter
+      // par un texte les exposerait a une reformulation. Absent est le cas
+      // normal — la plupart des sujets n'ont pas d'anticipation datee.
+      ...(analysis.infographie === undefined
+        ? {}
+        : { infographie: analysis.infographie }),
       editorial_notes: {
         uncertainty_flags: dedupe(uncertaintyFlags),
         // §7 : "claims rejetees et pourquoi". Uniquement des rejets.
