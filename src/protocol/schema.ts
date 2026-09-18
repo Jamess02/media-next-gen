@@ -21,6 +21,7 @@ import {
   ROLES_CHAPITRE,
   CHANGELOG_TYPES,
   EVIDENCE_LEVELS,
+  METHODES_COMPOSANTE,
   SOURCE_TIERS,
 } from "./constants.js";
 import { checkCitableUrl, explainUrlRejection } from "./url.js";
@@ -142,6 +143,67 @@ export const ChangelogEntrySchema = z
   .strict();
 
 /**
+ * Jour calendaire, ex. « 2026-06-12 ».
+ *
+ * PAS `isoDate` : une anticipation est figee un JOUR, pas a une milliseconde
+ * pres. Exiger un horodatage complet obligerait a inventer une heure, donc une
+ * precision que la source n'a pas (EP-005).
+ */
+const jourCalendaire = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
+  message: "date attendue au format AAAA-MM-JJ",
+});
+
+/** Valeur datee et sourcee. Sans ces deux champs, aucun ecart n'est calculable. */
+const ValeurDateeSchema = z
+  .object({
+    value: z.number().finite(),
+    source: z.string().trim().min(1),
+    /** `frozen_at` pour une anticipation, `published_at` pour un realise. */
+    date: jourCalendaire,
+    /** Presente uniquement si elle differe de l'unite de l'indicateur (EP-006). */
+    unite: z.string().min(1).optional(),
+  })
+  .strict();
+
+/**
+ * INFOGRAPHIE — l'ENTREE du calcul d'ecart, jamais son resultat.
+ *
+ * Ni `ecart` ni `residu` ne figurent ici, et c'est deliberé. Ils sont calcules
+ * par `infographie/ecart.ts` a partir de ces champs. Si un agent pouvait les
+ * DECLARER, il pourrait annoncer un ecart sans rapport avec les chiffres qui
+ * l'accompagnent — et le graphique, qui a l'autorite d'un schema, afficherait
+ * autre chose que les donnees. C'est le principe deja applique au tableau des
+ * chiffres : l'agent decide ce qui est mesure, pas le rang, qui est calcule.
+ *
+ * Le plafond de trois composantes vient du brief editorial : au-dela, une
+ * decomposition cesse d'expliquer et commence a repartir.
+ */
+export const InfographieSchema = z
+  .object({
+    /** Identifiant stable, repris d'une edition a l'autre dans le suivi. */
+    indicateur: z.string().trim().min(1),
+    /** Libelle lisible, affiche au lecteur. */
+    libelle: z.string().trim().min(1),
+    unite: z.string().trim().min(1),
+    anticipe: ValeurDateeSchema,
+    realise: ValeurDateeSchema,
+    composantes: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1),
+            value: z.number().finite(),
+            method: z.enum(METHODES_COMPOSANTE),
+            /** Une contribution non tracable ne peut pas figurer au graphique. */
+            source: z.string().trim().min(1),
+          })
+          .strict(),
+      )
+      .max(3),
+  })
+  .strict();
+
+/**
  * L'article complet.
  *
  * Note de lecture : le tableau `claims` contient les claims STRUCTURANTES au
@@ -189,6 +251,18 @@ export const ArticleSchema = z
           .strict(),
       )
       .optional(),
+    /**
+     * Donnees du graphique d'ecart. OPTIONNEL, et il doit le rester — meme
+     * raison que `mode` et `chapitres` : le schema est `.strict()`, et les
+     * articles anterieurs n'en portent pas. Le rendre obligatoire invaliderait
+     * d'un coup les brouillons existants et les attestations de relecture,
+     * dont l'empreinte couvre l'article entier.
+     *
+     * Absent est le cas NORMAL : la plupart des articles n'ont pas
+     * d'anticipation datee a confronter, et le brief l'ecrit — sans
+     * anticipation sourcee, pas d'ecart.
+     */
+    infographie: InfographieSchema.optional(),
     editorial_notes: EditorialNotesSchema,
     changelog: z.array(ChangelogEntrySchema),
   })
@@ -213,6 +287,7 @@ export type SourceRef = z.infer<typeof SourceRefSchema>;
 export type Claim = z.infer<typeof ClaimSchema>;
 export type EditorialNotes = z.infer<typeof EditorialNotesSchema>;
 export type ChangelogEntry = z.infer<typeof ChangelogEntrySchema>;
+export type Infographie = z.infer<typeof InfographieSchema>;
 export type Article = z.infer<typeof ArticleSchema>;
 
 /* -------------------------------------------------------------------------

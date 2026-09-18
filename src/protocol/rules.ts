@@ -31,6 +31,7 @@ import {
   mentionsInterest,
   type DeclaredInterest,
 } from "./interests.js";
+import { calculerEcart } from "../infographie/ecart.js";
 import { figureUnits } from "./figures.js";
 import type { Article, Claim } from "./schema.js";
 import {
@@ -1310,6 +1311,51 @@ function ruleClaimAboutDataset(article: Article): Violation[] {
 }
 
 /* -------------------------------------------------------------------------
+ * Infographie — un graphique ne montre que ce qui est tracable
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Bloque un article dont l'infographie ne tient pas.
+ *
+ * Le brief editorial du 2026-09-18 confie au fact-checker de « bloquer tout
+ * graphique dont une composante n'est pas tracable ». C'est ici que cette
+ * phrase devient opposable : un graphique est l'element le plus autoritaire
+ * d'une page — aligne, chiffre, colore, il a l'apparence d'une donnee verifiee,
+ * et le lecteur lui accorde la confiance qu'il refuserait a une phrase.
+ *
+ * LE GATE NE REFORMULE PAS. Le verdict vient de `calculerEcart`, donc d'un
+ * calcul teste, et son motif est transmis tel quel : anticipation non sourcee
+ * ou non datee, unites incompatibles (EP-006), composante sans source ou de
+ * methode inconnue. Reecrire le motif ici en produirait une seconde version,
+ * qui divergerait — et obligerait le relecteur a rouvrir les donnees pour
+ * comprendre ce qui cloche.
+ *
+ * BLOQUANT et non avertissement : il n'existe aucun cas ou publier un
+ * graphique dont une part n'est pas tracable serait correct. La correction est
+ * claire — sourcer la composante, ou la retirer et laisser le residu la porter.
+ */
+function ruleInfographieTracable(article: Article): Violation[] {
+  const infographie = article.infographie;
+  if (infographie === undefined) return [];
+
+  const resultat = calculerEcart(infographie);
+  if (resultat.ok) return [];
+
+  return [
+    {
+      rule: "INFOGRAPHIE_NON_TRACABLE",
+      clause: "§2 / EP-002",
+      severity: "blocking",
+      message:
+        `Infographie refusee — ${resultat.motif}. Un graphique dont une part ` +
+        `n'est pas tracable affiche avec l'autorite d'un schema ce que personne ` +
+        `ne peut verifier.`,
+      path: "infographie",
+    },
+  ];
+}
+
+/* -------------------------------------------------------------------------
  * Gate complet
  * ---------------------------------------------------------------------- */
 
@@ -1338,6 +1384,7 @@ const DOCUMENT_RULES = [
   ruleRevisionDate,
   ruleRevisionIsLogged,
   ruleNoRecommendation,
+  ruleInfographieTracable,
 ] as const;
 
 /**

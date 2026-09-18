@@ -167,6 +167,21 @@ export const ROLES_CHAPITRE = [
 export type RoleChapitre = (typeof ROLES_CHAPITRE)[number];
 export type ArticleMode = (typeof ARTICLE_MODES)[number];
 
+/**
+ * Methode d'obtention d'une composante d'ecart (infographie).
+ *
+ * `publiee` : contribution officielle, telle que l'organisme la publie.
+ * `estimee` : calcul interne, dont la methode est decrite dans la source.
+ * `incertaine` : attribution plausible, que les donnees n'etablissent pas.
+ *
+ * VIVENT ICI, et non dans `infographie/ecart.ts`, pour la raison deja donnee
+ * aux roles de chapitre : le contrat §7 les porte, et le schema ne doit pas
+ * dependre d'un module de rendu. Les declarer des deux cotes ferait diverger
+ * deux listes dont une seule serait verifiee.
+ */
+export const METHODES_COMPOSANTE = ["publiee", "estimee", "incertaine"] as const;
+export type MethodeComposante = (typeof METHODES_COMPOSANTE)[number];
+
 export const PROSPECTIVE_DISCLAIMER =
   "Article prospectif : les scenarios ci-dessous sont des hypotheses " +
   "conditionnelles, pas des previsions. Leurs premisses sont sourcees ; leurs " +

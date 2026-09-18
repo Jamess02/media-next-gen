@@ -2,8 +2,11 @@
  * INFOGRAPHIE — ecart mesure entre une valeur ANTICIPEE et une valeur REALISEE,
  * et decomposition de cet ecart.
  *
- * Dependances : aucune, ni npm ni interne. Module PUR — pas de reseau, pas de
- * LLM, pas de fichier. C'est la meme raison que pour `rules.ts` et le tri des
+ * Dependances : aucune npm. Un seul import interne, `protocol/constants.js`,
+ * pour les methodes de composante : elles appartiennent au contrat §7, et les
+ * redeclarer ici ferait diverger deux listes dont une seule serait verifiee.
+ * Module PUR pour le reste — pas de reseau, pas de LLM, pas de fichier. C'est
+ * la meme raison que pour `rules.ts` et le tri des
  * chiffres : un graphique est l'element le plus autoritaire d'une page. Aligne,
  * chiffre, colore, il a l'apparence d'une donnee verifiee, et le lecteur y
  * accorde la confiance qu'il refuserait a une phrase. Ce qu'il montre doit donc
@@ -32,9 +35,11 @@
  * precision que la mesure n'a pas.
  */
 
-export type MethodeComposante = "publiee" | "estimee" | "incertaine";
+import { METHODES_COMPOSANTE, type MethodeComposante } from "../protocol/constants.js";
 
-export const METHODES: readonly MethodeComposante[] = ["publiee", "estimee", "incertaine"];
+export type { MethodeComposante };
+
+export const METHODES: readonly MethodeComposante[] = METHODES_COMPOSANTE;
 
 /** Une valeur ne vaut que datee et sourcee : c'est le §2 applique au graphique. */
 export interface ValeurDatee {
@@ -43,8 +48,17 @@ export interface ValeurDatee {
   source: string;
   /** `frozen_at` pour une anticipation, `published_at` pour un realise. */
   date: string;
-  /** Unite, si elle differe de celle de l'indicateur. Sert a REFUSER (EP-006). */
-  unite?: string;
+  /**
+   * Unite, si elle differe de celle de l'indicateur. Sert a REFUSER (EP-006).
+   *
+   * `| undefined` explicite parce que le projet compile avec
+   * `exactOptionalPropertyTypes` : le schema zod du §7 produit
+   * `unite?: string | undefined`, et sans cette tolerance l'entree validee par
+   * le contrat ne serait pas acceptee par le calcul qu'elle alimente. Le
+   * relacher ICI plutot que caster cote appelant : un cast masquerait
+   * l'incompatibilite au lieu de la resoudre.
+   */
+  unite?: string | undefined;
 }
 
 export interface Composante {
