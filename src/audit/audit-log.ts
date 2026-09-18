@@ -297,8 +297,15 @@ const CHAMPS_DE_CHAINE = ["prev_sha256", "entry_sha256"] as const;
  * Inclure `prev` dans le hache est tout le mecanisme : sans lui, chaque entree
  * serait verifiable isolement et on pourrait en supprimer une sans que rien ne
  * s'en apercoive.
+ *
+ * EXPORTE parce qu'un second registre en ajout seul existe desormais — le suivi
+ * des indicateurs (`infographie/suivi.ts`), dont le brief editorial exige que
+ * rien ne soit jamais reecrit. Il doit sceller ses entrees EXACTEMENT comme
+ * celui-ci, faute de quoi `verifyJournal` ne saurait pas les verifier. Deux
+ * implementations du scellement divergeraient, et celle qu'aucun test ne couvre
+ * serait celle qui laisse passer une reecriture.
  */
-function entryHash(contenu: unknown, prev: string): string {
+export function entryHash(contenu: unknown, prev: string): string {
   return createHash("sha256")
     .update(`${prev}\n${JSON.stringify(contenu, stableReplacer)}`)
     .digest("hex");
