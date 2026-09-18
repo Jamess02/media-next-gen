@@ -353,6 +353,26 @@ footer.site {
 */
 .tableau-enveloppe { overflow-x: auto; margin: 0 0 26px; }
 
+/* --- Graphique d'ecart (cascade) ----------------------------------------- */
+/*
+   Meme principe que le tableau : le conteneur defile, pas la PAGE. Un SVG
+   laisse libre deborde sur telephone et casse la lecture du texte partout
+   ailleurs.
+
+   Hauteur automatique et largeur a 100 % : le graphique porte un viewBox et aucune
+   dimension fixe, il se remet donc a l'echelle sans se deformer. Les couleurs
+   viennent des variables de theme, jamais du SVG lui-meme — le site a trois
+   etats de theme, et un graphique fige serait illisible dans l'un d'eux.
+*/
+.figure-ecart { margin: 30px 0; overflow-x: auto; }
+.figure-ecart svg { display: block; width: 100%; height: auto; max-width: 100%; }
+.figure-ecart figcaption {
+  color: var(--gris);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin-top: 10px;
+}
+
 table.chiffres {
   border-collapse: collapse;
   width: 100%;

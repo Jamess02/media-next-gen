@@ -20,6 +20,8 @@ import {
 import type { ReviewRecord } from "../editorial/validation.js";
 import { createHash } from "node:crypto";
 
+import { calculerEcart } from "../infographie/ecart.js";
+import { rendreCascade } from "../infographie/svg.js";
 import { formatFigure, rankedFigures } from "../protocol/figures.js";
 import { attributionsDeLicence } from "../protocol/sources-de-marche.js";
 import { interestsForUrls } from "../protocol/interests.js";
@@ -447,6 +449,48 @@ function renderAttributions(article: Article): string {
     .join(" &middot; ")}</p>`;
 }
 
+/**
+ * Le graphique d'ecart, avec sa legende.
+ *
+ * LA LEGENDE VISIBLE EST LE TEXTE ALTERNATIF DU GRAPHIQUE, pas une phrase
+ * redigee a cote. Deux formulations finiraient par diverger du dessin, et c'est
+ * le texte que retient un lecteur pressé — ou qui cite l'article de memoire.
+ * Une seule source pour les deux : ce que le graphique montre et ce que la page
+ * ecrit ne peuvent pas se contredire.
+ *
+ * L'ESTIMATION INTERNE EST REDITE EN TOUTES LETTRES. Le brief l'exige « dans le
+ * graphique ET dans le texte », et la raison tient en une phrase : une mention
+ * dessinee dans une legende graphique ne se lit pas comme une phrase.
+ *
+ * OMIS PLUTOT QU'EN ERREUR quand le calcul refuse. Le gate bloque deja ce cas
+ * avant publication ; s'il arrivait ici — un brouillon relu a la main, un
+ * article anterieur a la regle — lever une exception ferait disparaitre
+ * l'ARTICLE ENTIER. Une page sans graphique reste une page ; une page en erreur
+ * n'en est pas une.
+ */
+function renderInfographie(article: Article): string {
+  const infographie = article.infographie;
+  if (infographie === undefined) return "";
+
+  const resultat = calculerEcart(infographie);
+  if (!resultat.ok) return "";
+
+  const { svg, alt } = rendreCascade(resultat.ecart);
+
+  const internes = resultat.ecart.estimationsInternes;
+  const mention =
+    internes.length === 0
+      ? ""
+      : ` Estimation interne, non officielle : ${internes.join(", ")} — la ` +
+        `methode figure dans la source, et ce chiffre n'est publie par aucun ` +
+        `organisme.`;
+
+  return `<figure class="figure-ecart">
+${svg}
+  <figcaption>${escapeHtml(alt)}${escapeHtml(mention)}</figcaption>
+</figure>`;
+}
+
 export function articlePage(
   article: Article,
   review?: ReviewRecord,
@@ -496,6 +540,7 @@ export function articlePage(
   ${renderDisclosures(article)}
   ${avertissement}
   <div class="corps">${corps}</div>
+  ${renderInfographie(article)}
   ${renderFigureTable(article)}
   ${renderAttributions(article)}
   <div class="section">preuves</div>
