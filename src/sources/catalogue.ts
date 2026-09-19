@@ -24,6 +24,7 @@ import {
   interestCaveat,
   type DeclaredInterest,
 } from "../protocol/interests.js";
+import { Espaceur } from "./debit.js";
 import { currentsAdapter } from "./currents.js";
 import { newsdataAdapter } from "./newsdata.js";
 import { eurostatAdapter } from "./eurostat.js";
@@ -63,6 +64,34 @@ const ARXIV_INTERVALLE_MS = 3_000;
  * servir une liste veritablement perimee.
  */
 const ARXIV_TTL_MS = 3_600_000;
+
+/**
+ * Debit vers github.com, et il faut dire ce qu'il vaut : GitHub ne publie
+ * AUCUNE limite pour les flux `.atom` (les 60 requetes/heure documentees valent
+ * pour l'API REST, que nous n'utilisons pas). Cette valeur est donc un choix de
+ * PRUDENCE, pas une citation — a la difference des trois secondes d'arXiv.
+ *
+ * Elle reste large : avec le TTL ci-dessous, trois depots font trois requetes
+ * par heure.
+ */
+const GITHUB_INTERVALLE_MS = 1_000;
+
+/** Une version parait au mieux quelques fois par semaine. */
+const GITHUB_TTL_MS = 3_600_000;
+
+/**
+ * Note accolee a chaque version publiee.
+ *
+ * LE PIEGE PROPRE A LA TECHNOLOGIE. Le numero et la date sortent du meme
+ * document que « deux fois plus rapide ». Les premiers se verifient a
+ * l'adresse ; la seconde est une affirmation de l'editeur sur son propre
+ * produit, qu'aucun tiers n'a mesuree.
+ */
+const VERSION_CAVEAT =
+  "Note de version publiee par le projet lui-meme : le numero et la date se " +
+  "verifient a cette adresse, mais tout ce que la note AFFIRME (performances, " +
+  "capacites, comparaisons) est DECLARE par l'editeur et n'est audite par " +
+  "personne (§3, EP-001).";
 
 /**
  * Recupere un interet declare par son domaine.
@@ -185,6 +214,10 @@ export interface SourceCatalogue {
 export function buildSourceCatalogue(
   env: NodeJS.ProcessEnv = process.env,
 ): SourceCatalogue {
+  // Cree AVANT la liste : les trois adaptateurs GitHub doivent recevoir la
+  // MEME instance, sans quoi chacun repartirait de « aucun appel recent ».
+  const espaceurGitHub = new Espaceur({ intervalleMs: GITHUB_INTERVALLE_MS });
+
   const adapters: SourceAdapter[] = [
     // --- Tier 1, sans clef ------------------------------------------------
     worldBankAdapter({ country: "EMU", indicator: "FP.CPI.TOTL.ZG" }),
@@ -477,9 +510,86 @@ export function buildSourceCatalogue(
         "chiffres sont ceux des auteurs, et la methode n'a ete auditee par " +
         "personne (EP-001).",
     }),
+
+    // --- Tier 2 par chemin : versions publiees sur GitHub -------------------
+    //
+    // UN SEUL ESPACEUR POUR LES TROIS. La limite appartient a l'hote, pas a
+    // l'adaptateur : trois espaceurs prives constateraient chacun « aucun appel
+    // recent » et partiraient ensemble.
+    //
+    // MESURE du 2026-09-19. Six depots interroges, tous en HTTP 200 — les
+    // brancher sur ce seul critere aurait inonde le Veilleur de faux
+    // evenements. Trois seulement publient de vraies versions ; les trois
+    // autres sont ecartes plus bas, motif a l'appui.
+    ...[
+      {
+        id: "github:transformers",
+        source: "Hugging Face / transformers",
+        chemin: "huggingface/transformers",
+        describes:
+          "Versions publiees de transformers (Hugging Face) : diffusion des architectures de modeles",
+      },
+      {
+        id: "github:ollama",
+        source: "Ollama",
+        chemin: "ollama/ollama",
+        describes:
+          "Versions publiees d'Ollama : diffusion des modeles executes localement",
+      },
+      {
+        id: "github:openssl",
+        source: "OpenSSL",
+        chemin: "openssl/openssl",
+        describes:
+          "Versions publiees d'OpenSSL : correctifs de la bibliotheque cryptographique la plus deployee",
+      },
+    ].map((d) =>
+      rssAdapter({
+        id: d.id,
+        source: d.source,
+        url: `https://github.com/${d.chemin}/releases.atom`,
+        describes: d.describes,
+        type: "version-publiee",
+        limit: 2,
+        espaceur: espaceurGitHub,
+        ttlMs: GITHUB_TTL_MS,
+        caveat: VERSION_CAVEAT,
+      }),
+    ),
   ];
 
   const skipped: SkippedSource[] = [];
+
+  // Depots MESURES le 2026-09-19 et ecartes le jour meme. Les trois repondent
+  // HTTP 200 en application/atom+xml : le code de retour ne dit rien de la
+  // valeur editoriale, et c'est precisement le piege. Le motif porte l'exemple
+  // releve, sans quoi quelqu'un rebranchera le flux en constatant qu'il repond.
+  skipped.push({
+    id: "github:pytorch",
+    reason:
+      "MESURE 2026-09-19 : github.com/pytorch/pytorch/releases.atom repond " +
+      "HTTP 200, mais ses dix entrees sont des marqueurs internes " +
+      "d'integration continue — « viable/strict/1789847421 » — publies " +
+      "plusieurs fois par heure. Aucune version au sens editorial. Rebrancher " +
+      "ce flux inonderait le Veilleur de faux evenements dates du jour.",
+  });
+  skipped.push({
+    id: "github:llama-cpp",
+    reason:
+      "MESURE 2026-09-19 : github.com/ggml-org/llama.cpp/releases.atom repond " +
+      "HTTP 200, mais publie des numeros de compilation — « b11056 », " +
+      "« b11055 » — plusieurs fois par jour, sans note ni portee. Un numero " +
+      "qui s'incremente n'est pas un evenement.",
+  });
+  skipped.push({
+    id: "github:vllm",
+    reason:
+      "MESURE 2026-09-19 : github.com/vllm-project/vllm/releases.atom repond " +
+      "HTTP 200, mais son flux est domine par des candidates et des sous-" +
+      "projets — « v0.30.0rc2 », « proto-v0.3.0 ». Annoncer une candidate " +
+      "comme une sortie serait exactement l'ecart entre l'annonce et la " +
+      "realite que le fact-checker doit traquer.",
+  });
 
   // Relations investisseurs d'Oracle, demandees par l'editeur le 2026-09-19 et
   // ECARTEES le jour meme, faute de surface lisible par une machine.

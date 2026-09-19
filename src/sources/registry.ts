@@ -103,6 +103,38 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   // Agregat multi-plateformes, methodologie publiee : la definition meme du
   // tier 2. L'attribution « selon CoinGecko » est exigee a part.
   { domain: "api.coingecko.com", tier: 2, name: "CoinGecko (agregat multi-plateformes)" },
+  // GitHub, et l'ordre compte autant que le tier.
+  //
+  // La PUBLICATION d'une version est un fait a distance zero : le depot du
+  // projet est le lieu meme ou elle a lieu, et « la version 5.17 est sortie le
+  // 10 septembre » se verifie a cette adresse. Sans tier 1 ou 2, cette phrase
+  // ne pourrait meme pas etre typee « fait » (§3).
+  //
+  // Mais github.com heberge N'IMPORTE QUI. Une entree de domaine au tier 2
+  // aurait promu le README du premier venu au rang de donnee publique. Seuls
+  // les chemins de versions MESURES le 2026-09-19 sont donc releves, chemin par
+  // chemin ; le reste du site reste en tier 3, comme GDELT Cloud plus haut.
+  //
+  // Le tier ne dit rien de ce que la note AFFIRME : la performance annoncee
+  // n'est auditee par personne, et c'est le caveat du catalogue qui le porte.
+  {
+    domain: "github.com",
+    tier: 2,
+    name: "Hugging Face / transformers (versions publiees)",
+    pathPrefix: "/huggingface/transformers/releases",
+  },
+  {
+    domain: "github.com",
+    tier: 2,
+    name: "Ollama (versions publiees)",
+    pathPrefix: "/ollama/ollama/releases",
+  },
+  {
+    domain: "github.com",
+    tier: 2,
+    name: "OpenSSL (versions publiees)",
+    pathPrefix: "/openssl/openssl/releases",
+  },
 
   // --- Tier 3 : sources secondaires ---------------------------------------
   { domain: "gnews.io", tier: 3, name: "GNews" },
@@ -117,6 +149,10 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   // un fait, pas le serieux de l'archive — d'ou le tier 3 malgre l'institution,
   // et le caveat qui le redit dans chaque observation.
   { domain: "arxiv.org", tier: 3, name: "arXiv (prepublication)" },
+  // Tout le reste de github.com. ENREGISTRE, et pas seulement laisse au tier 3
+  // par defaut : un domaine inconnu affiche son nom d'hote a la place du nom de
+  // l'editeur, et l'assertion « tier 3 » passerait meme apres retrait.
+  { domain: "github.com", tier: 3, name: "GitHub (depot public)" },
   // Acteurs du marche qu'ils commentent. Le tier 3 dit leur distance a la
   // donnee ; leur interet est declare separement et sa mention en gras est
   // exigee par une regle bloquante (protocol/interests.ts).

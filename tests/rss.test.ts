@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { Espaceur } from "../src/sources/debit.js";
 import { rssAdapter } from "../src/sources/rss.js";
 
 const QUERY = { topic: "inflation monetaire", since: "2026-01-01T00:00:00Z" };
@@ -167,6 +168,45 @@ describe("analyse du flux", () => {
     expect(r.observations[0]?.url).toBe("https://exemple.test/atom");
   });
 
+  it("lit <content> quand Atom ne fournit ni description ni summary", async () => {
+    // MESURE du 2026-09-19 sur les flux de versions de GitHub : ils portent
+    // leurs notes dans <content type="html">, jamais dans <summary>. Sans cette
+    // lecture, l'observation se reduisait au titre — « Release 5.17.0. » — et
+    // l'article n'avait rien a dire de ce qui avait change.
+    stub(`<?xml version="1.0"?>
+      <feed xmlns="http://www.w3.org/2005/Atom">
+        <entry>
+          <title>Release 5.17.0</title>
+          <link href="https://exemple.test/releases/tag/v5.17.0"/>
+          <updated>2026-09-10T12:03:18Z</updated>
+          <content type="html">&lt;p&gt;Ajoute la prise en charge de deux architectures.&lt;/p&gt;</content>
+        </entry>
+      </feed>`);
+    const resume = (await rssAdapter(base).fetch(QUERY)).observations[0]?.resume ?? "";
+    expect(resume).toMatch(/prise en charge de deux architectures/);
+    // Le HTML encode deux fois par l'editeur ne doit pas ressortir en clair.
+    expect(resume).not.toMatch(/<p>|&lt;p&gt;/);
+  });
+
+  it("PREFERE summary a content quand les deux sont la", async () => {
+    // Atom autorise les deux. `summary` est le resume voulu par l'editeur ;
+    // `content` est le document entier. Prendre le second par defaut ferait
+    // entrer des pages completes la ou un resume existe.
+    stub(`<?xml version="1.0"?>
+      <feed xmlns="http://www.w3.org/2005/Atom">
+        <entry>
+          <title>Communique</title>
+          <link href="https://exemple.test/atom"/>
+          <updated>2026-09-02T10:00:00Z</updated>
+          <summary>Le resume voulu par l'editeur.</summary>
+          <content type="html">Le document entier, beaucoup plus long.</content>
+        </entry>
+      </feed>`);
+    const resume = (await rssAdapter(base).fetch(QUERY)).observations[0]?.resume ?? "";
+    expect(resume).toMatch(/resume voulu par l'editeur/);
+    expect(resume).not.toMatch(/document entier/);
+  });
+
   it("retire les CDATA et le balisage residuel", async () => {
     // Le libelle evite volontairement le mot « CDATA » : l'y placer rendrait
     // l'assertion d'absence intestable.
@@ -274,5 +314,63 @@ describe("echecs", () => {
   it("echoue sur un statut HTTP non OK", async () => {
     stub("", false, 401);
     await expect(rssAdapter(base).fetch(QUERY)).rejects.toThrow(/HTTP 401/);
+  });
+});
+
+describe("debit partage entre adaptateurs", () => {
+  /**
+   * POURQUOI CE PARTAGE EXISTE. Une limite de debit appartient a l'HOTE, pas a
+   * l'adaptateur. Trois depots GitHub, c'est trois adaptateurs et un seul
+   * serveur : trois espaceurs independants constateraient chacun « aucun appel
+   * recent » et partiraient ensemble. La limite serait respectee trois fois, et
+   * franchie une.
+   */
+  function horloge() {
+    let t = 0;
+    return {
+      maintenant: () => t,
+      attendre: async (ms: number) => {
+        t += ms;
+      },
+    };
+  }
+
+  it("SERIALISE deux adaptateurs DIFFERENTS qui partagent un espaceur", async () => {
+    const h = horloge();
+    const partage = new Espaceur({ intervalleMs: 1000, horloge: h });
+    const departs: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        departs.push(h.maintenant());
+        return { ok: true, status: 200, text: async () => rss(item({})) };
+      }),
+    );
+
+    const un = rssAdapter({ ...base, id: "a", url: "https://exemple.test/a.xml", espaceur: partage });
+    const deux = rssAdapter({ ...base, id: "b", url: "https://exemple.test/b.xml", espaceur: partage });
+    await Promise.all([un.fetch(QUERY), deux.fetch(QUERY)]);
+
+    expect(departs).toEqual([0, 1000]);
+  });
+
+  it("n'espace PAS deux adaptateurs qui n'en partagent aucun", async () => {
+    // Le contraste rend le test precedent lisible : sans partage, les deux
+    // requetes partent au meme instant. C'est le defaut que le partage corrige.
+    const h = horloge();
+    const departs: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        departs.push(h.maintenant());
+        return { ok: true, status: 200, text: async () => rss(item({})) };
+      }),
+    );
+
+    const un = rssAdapter({ ...base, id: "a", url: "https://exemple.test/a.xml" });
+    const deux = rssAdapter({ ...base, id: "b", url: "https://exemple.test/b.xml" });
+    await Promise.all([un.fetch(QUERY), deux.fetch(QUERY)]);
+
+    expect(departs).toEqual([0, 0]);
   });
 });

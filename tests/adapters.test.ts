@@ -449,23 +449,30 @@ describe("catalogue des sources", () => {
     </feed>`;
 
   /** Bouchon qui DATE chaque depart : c'est la mesure du test. */
-  function stubQuiDate(): number[] {
+  function stubQuiDate(corps: string = FLUX_ARXIV): number[] {
     const departs: number[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
         departs.push(Date.now());
-        return { ok: true, status: 200, text: async () => FLUX_ARXIV };
+        return { ok: true, status: 200, text: async () => corps };
       }),
     );
     return departs;
   }
 
-  const arxivDeLaSuite = (): SourceAdapter => {
-    const a = buildSourceCatalogue({}).adapters.find((x) => x.id === "arxiv:ia");
-    if (a === undefined) throw new Error("arXiv absent du catalogue");
+  // UN SEUL catalogue par test : deux constructions rendraient deux espaceurs
+  // distincts, et le test du debit partage ne prouverait plus rien.
+  let catalogueDuTest: ReturnType<typeof buildSourceCatalogue> | null = null;
+
+  const parIdentifiant = (id: string): SourceAdapter => {
+    catalogueDuTest ??= buildSourceCatalogue({});
+    const a = catalogueDuTest.adapters.find((x) => x.id === id);
+    if (a === undefined) throw new Error(id + " absent du catalogue");
     return a;
   };
+
+  const arxivDeLaSuite = (): SourceAdapter => parIdentifiant("arxiv:ia");
 
   let cacheTmp: string;
   let cacheAvant: string | undefined;
@@ -474,6 +481,7 @@ describe("catalogue des sources", () => {
     // Dossier NEUF a chaque test. Sans lui, la deuxieme execution de la suite
     // lirait le cache laisse par la premiere : zero requete, et le test du
     // debit ne mesurerait plus rien tout en restant vert.
+    catalogueDuTest = null;
     cacheTmp = await mkdtemp(join(tmpdir(), "mng-arxiv-"));
     cacheAvant = process.env["SOURCES_CACHE_DIR"];
     // Lue a la CONSTRUCTION du catalogue : la poser ici suffit, et chaque test
@@ -532,6 +540,105 @@ describe("catalogue des sources", () => {
 
     const ecrit = await readdir(cacheTmp);
     expect(ecrit.length, "rien n'a ete ecrit dans la racine imposee").toBeGreaterThan(0);
+  });
+
+  /* ---- GitHub : la publication d'une version, pas ce qu'elle promet -------- */
+
+  const FLUX_GITHUB = `<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Release 5.17.0</title>
+        <link rel="alternate" href="https://github.com/huggingface/transformers/releases/tag/v5.17.0"/>
+        <updated>2026-09-10T12:03:18Z</updated>
+        <content type="html">&lt;p&gt;Prise en charge de deux architectures.&lt;/p&gt;</content>
+      </entry>
+    </feed>`;
+
+  const DEPOTS_BRANCHES = ["github:transformers", "github:ollama", "github:openssl"];
+
+  it("branche les trois depots dont le flux porte de VRAIES versions", () => {
+    const ids = buildSourceCatalogue({}).adapters.map((a) => a.id);
+    for (const id of DEPOTS_BRANCHES) expect(ids).toContain(id);
+  });
+
+  it("ECARTE les depots dont le flux n'est que du bruit machine, et DATE la mesure", () => {
+    // MESURE du 2026-09-19. Les trois repondent HTTP 200 : les brancher sur ce
+    // seul critere aurait inonde le Veilleur de faux evenements.
+    //   pytorch/pytorch   : « viable/strict/1789847421 », marqueurs internes
+    //                       d'integration continue, plusieurs par heure
+    //   ggml-org/llama.cpp: « b11056 », numeros de compilation, plusieurs/jour
+    //   vllm-project/vllm : « v0.30.0rc2 », « proto-v0.3.0 », des candidates
+    const { skipped } = buildSourceCatalogue({});
+    for (const id of ["github:pytorch", "github:llama-cpp", "github:vllm"]) {
+      const motif = skipped.find((s) => s.id === id)?.reason ?? "";
+      expect(motif, `${id} ecarte sans motif`).toMatch(/2026-09-19/);
+      expect(motif.length, `${id} : motif trop court pour etre verifiable`).toBeGreaterThan(60);
+    }
+  });
+
+  it("classe en TIER 2 la page de versions d'un depot VERIFIE", () => {
+    // La publication d'une version est un fait a distance zero : le depot du
+    // projet EST le lieu ou elle a lieu. Sans tier 1 ou 2, aucune claim ne
+    // pourrait etre typee « fait » (§3), et « la version 5.17 est sortie le 10
+    // septembre » — pourtant verifiable a cette adresse — deviendrait indicible.
+    const c = classifySource(
+      "https://github.com/huggingface/transformers/releases/tag/v5.17.0",
+    );
+    expect(c.tier).toBe(2);
+    expect(c.registered).toBe(true);
+    // Le nom affiche au lecteur est celui du PROJET : c'est lui qui publie,
+    // GitHub n'est que l'hebergeur. Sans cette assertion, renommer l'entree
+    // « GitHub » passait inapercu — constate par mutation.
+    expect(c.name).toMatch(/transformers/i);
+  });
+
+  it("laisse TOUT LE RESTE de github.com en tier 3", () => {
+    // Le point le plus important du lot. github.com heberge n'importe qui :
+    // une entree de domaine au tier 2 aurait promu le README du premier venu au
+    // rang de donnee publique. Seuls les chemins MESURES sont releves.
+    for (const url of [
+      "https://github.com/quelquun/son-depot",
+      "https://github.com/quelquun/son-depot/releases/tag/v1",
+      "https://github.com/huggingface/transformers/blob/main/README.md",
+    ]) {
+      const c = classifySource(url);
+      expect(c.tier, `${url} promu a tort`).toBe(3);
+      // Enregistre quand meme : sinon le lecteur voit « github.com » au lieu
+      // du nom de l'editeur, et la mutation « entree retiree » passerait.
+      expect(c.registered, `${url} : hote nu affiche au lecteur`).toBe(true);
+    }
+  });
+
+  it("dit que la note de version est DECLAREE par l'editeur, pas auditee", async () => {
+    // Le piege propre a la technologie, et celui que l'editeur a nomme : la
+    // date et le numero sont verifiables ; « deux fois plus rapide » ne l'est
+    // pas, et sort pourtant du meme document.
+    stubQuiDate(FLUX_GITHUB);
+    const gh = parIdentifiant("github:transformers");
+    const r = await gh.fetch({ topic: "architectures", since: "2026-01-01T00:00:00Z" });
+
+    expect(r.observations[0]?.resume).toMatch(/declare|non audite/i);
+    expect(r.observations[0]?.url).toBe(
+      "https://github.com/huggingface/transformers/releases/tag/v5.17.0",
+    );
+  });
+
+  it("PARTAGE un seul espaceur entre les depots : la limite est celle de l'hote", async () => {
+    // Trois adaptateurs, UN serveur. Trois espaceurs prives constateraient
+    // chacun « aucun appel recent » et partiraient ensemble : la limite serait
+    // respectee trois fois, et franchie une.
+    //
+    // Ce test attend reellement (voir la note du test arXiv) : c'est le seul
+    // montage qui prouve que le CATALOGUE partage l'instance.
+    const departs = stubQuiDate(FLUX_GITHUB);
+    const q = { topic: "versions", since: "2026-01-01T00:00:00Z" };
+    await Promise.all([
+      parIdentifiant("github:transformers").fetch(q),
+      parIdentifiant("github:ollama").fetch(q),
+    ]);
+
+    expect(departs.length).toBe(2);
+    expect((departs[1] ?? 0) - (departs[0] ?? 0)).toBeGreaterThanOrEqual(1_000);
   });
 
   it("branche les sources du 2026-09-19 dont le flux repond reellement", () => {

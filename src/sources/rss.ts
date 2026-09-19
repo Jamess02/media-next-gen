@@ -91,6 +91,17 @@ export interface RssAdapterOptions {
    * plutot qu'en code de retour : aucun 429 ne viendra avertir.
    */
   intervalleMs?: number;
+  /**
+   * Espaceur PARTAGE, quand plusieurs adaptateurs visent le meme hote.
+   *
+   * Une limite de debit appartient a l'hote, pas a l'adaptateur. Trois depots
+   * GitHub, c'est trois adaptateurs et UN serveur : trois espaceurs
+   * independants constateraient chacun « aucun appel recent » et partiraient
+   * ensemble — la limite serait respectee trois fois, et franchie une.
+   *
+   * Prioritaire sur `intervalleMs`, qui construit sinon un espaceur prive.
+   */
+  espaceur?: Espaceur;
 }
 
 /** Retire les CDATA et decode les entites les plus courantes. */
@@ -181,9 +192,10 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
       : null;
 
   const espaceur =
-    options.intervalleMs !== undefined && options.intervalleMs > 0
+    options.espaceur ??
+    (options.intervalleMs !== undefined && options.intervalleMs > 0
       ? new Espaceur({ intervalleMs: options.intervalleMs })
-      : null;
+      : null);
 
   return {
     id: options.id,
@@ -273,7 +285,14 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
           titre: texte(champ(bloc, "title")),
           url: lien(bloc),
           date: dateIso(bloc),
-          resume: texte(champ(bloc, "description") ?? champ(bloc, "summary")),
+          // ORDRE VOULU. <description> (RSS) puis <summary> (Atom) sont le
+          // resume choisi par l'editeur ; <content> est le document entier, et
+          // ne sert que si les deux premiers manquent. MESURE du 2026-09-19 :
+          // les flux de versions de GitHub ne portent QUE <content>, si bien
+          // que l'observation se reduisait au titre.
+          resume: texte(
+            champ(bloc, "description") ?? champ(bloc, "summary") ?? champ(bloc, "content"),
+          ),
         }))
         .filter((e) => e.titre.length > 0 && typeof e.url === "string")
         // §5.1 — la fenetre de fraicheur filtre reellement. Une entree non
