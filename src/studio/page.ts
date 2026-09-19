@@ -85,10 +85,22 @@ button[disabled]{opacity:.45;cursor:not-allowed}
 .barre-recherche input{flex:1;min-width:0;font:inherit;font-size:13px;padding:6px 9px;
   border:1px solid var(--trait);border-radius:3px;background:var(--papier);color:var(--encre)}
 .compte{font-size:11.5px;color:var(--gris);white-space:nowrap}
-.groupe-thematique{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;
-  color:var(--encre);margin:20px 0 9px;border-bottom:1px solid var(--trait);padding-bottom:4px}
-.groupe-thematique:first-child{margin-top:0}
-.groupe-thematique .n{color:var(--gris);font-weight:400}
+.sous-section{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  color:var(--gris-clair);margin:22px 0 8px}
+
+/* Une categorie est un BOUTON : on clique pour l'ouvrir. Le chevron suit
+   aria-expanded, de sorte que l'etat affiche et l'etat annonce aux outils
+   d'accessibilite ne puissent pas diverger. */
+.groupe-thematique{display:block;width:100%;text-align:left;font:inherit;
+  font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--encre);
+  background:var(--doux);border:1px solid var(--trait);border-radius:4px;
+  padding:8px 11px;margin:0 0 7px;cursor:pointer}
+.groupe-thematique:hover{border-color:var(--gris-clair)}
+.groupe-thematique::before{content:"▸  "}
+.groupe-thematique[aria-expanded="true"]::before{content:"▾  "}
+.groupe-thematique .n{color:var(--gris)}
+.groupe{margin:0 0 16px;padding-left:11px;border-left:2px solid var(--trait)}
+.groupe.replie{display:none}
 /* --- relecture ------------------------------------------------------------
    Le bloc de validation est visuellement distinct du reste : c'est le seul
    endroit de l'interface ou une action engage une PERSONNE, pas la machine. */
@@ -176,6 +188,10 @@ header{position:relative}
              placeholder="chercher : titre ou thematique">
       <span id="compte-recherche" class="compte"></span>
     </div>
+    <div class="sous-section">les plus recents</div>
+    <div id="derniers-brouillons"></div>
+
+    <div class="sous-section">par thematique</div>
     <div id="articles"><div class="vide">Chargement…</div></div>
 
     <div class="section">journal d'audit (§9.4)</div>
@@ -192,6 +208,7 @@ const JETON = document.querySelector("meta[name=jeton-studio]").dataset.jeton;
 const $ = (id) => document.getElementById(id);
 const flux = $("flux");
 
+/* --- rendu des brouillons --- */
 /**
  * Fonds des brouillons, tel que le SERVEUR l a range : groupe par thematique,
  * puis du plus recent au plus ancien a l interieur de chaque groupe. La page ne
@@ -236,14 +253,27 @@ function carteArticle(a) {
   return c;
 }
 
+/** Du plus recent au plus ancien. */
+function parDateDecroissante(liste) {
+  return liste.slice().sort((x, y) => (x.publie < y.publie ? 1 : x.publie > y.publie ? -1 : 0));
+}
+
 /**
- * Rendu de la liste, groupee et filtree.
+ * Rendu de la liste : les plus recents en tete, puis les categories repliables.
  *
- * LE COMPTE EST TOUJOURS AFFICHE. Une recherche laissee dans le champ ferait
+ * DEUX EXIGENCES DE L EDITEUR, et elles tirent en sens inverse. Les categories
+ * doivent etre CLIQUABLES, donc repliees — sinon il n y a rien a ouvrir. Mais
+ * les articles les plus recents doivent RESTER VISIBLES, et tout replier les
+ * cacherait. D ou les deux zones : un bandeau des derniers brouillons, toutes
+ * categories confondues, puis les categories elles-memes.
+ *
+ * UNE RECHERCHE OUVRE LES CATEGORIES. Cacher des resultats qu on vient de
+ * trouver serait absurde.
+ *
+ * LE COMPTE EST TOUJOURS AFFICHE : une recherche laissee dans le champ ferait
  * autrement croire que le fonds est vide alors qu il est seulement filtre.
  */
 function rendreArticles() {
-  const box = $("articles");
   const champ = $("recherche");
   const q = (champ && champ.value ? champ.value : "").trim().toLowerCase();
   const retenus = ARTICLES.filter((a) => correspond(a, q));
@@ -252,7 +282,17 @@ function rendreArticles() {
     ? retenus.length + " sur " + ARTICLES.length
     : ARTICLES.length + " brouillon(s)";
 
+  // --- Les plus recents, quelle que soit leur categorie ------------------
+  const recents = $("derniers-brouillons");
+  recents.textContent = "";
+  for (const a of parDateDecroissante(retenus).slice(0, 6)) {
+    recents.appendChild(carteArticle(a));
+  }
+
+  // --- Les categories ----------------------------------------------------
+  const box = $("articles");
   box.textContent = "";
+
   if (retenus.length === 0) {
     const v = document.createElement("div");
     v.className = "vide";
@@ -263,22 +303,48 @@ function rendreArticles() {
     return;
   }
 
-  let courante = null;
+  // Le serveur a deja range : on suit son ordre de categories sans le recalculer.
+  const ordre = [];
+  const parThematique = {};
   for (const a of retenus) {
-    if (a.thematique !== courante) {
-      courante = a.thematique;
-      const titre = document.createElement("div");
-      titre.className = "groupe-thematique";
-      titre.textContent = courante;
-      const n = document.createElement("span");
-      n.className = "n";
-      n.textContent = " · " + retenus.filter((x) => x.thematique === courante).length;
-      titre.appendChild(n);
-      box.appendChild(titre);
+    if (parThematique[a.thematique] === undefined) {
+      parThematique[a.thematique] = [];
+      ordre.push(a.thematique);
     }
-    box.appendChild(carteArticle(a));
+    parThematique[a.thematique].push(a);
+  }
+
+  for (const thematique of ordre) {
+    const articles = parDateDecroissante(parThematique[thematique]);
+
+    const entete = document.createElement("button");
+    entete.className = "groupe-thematique";
+    entete.setAttribute("type", "button");
+    entete.textContent = thematique;
+    const compte = document.createElement("span");
+    compte.className = "n";
+    compte.textContent = " · " + articles.length;
+    entete.appendChild(compte);
+
+    const contenu = document.createElement("div");
+    for (const a of articles) contenu.appendChild(carteArticle(a));
+
+    let ouvert = q.length > 0;
+    const appliquer = () => {
+      contenu.className = ouvert ? "groupe" : "groupe replie";
+      entete.setAttribute("aria-expanded", ouvert ? "true" : "false");
+    };
+    appliquer();
+    entete.addEventListener("click", () => {
+      ouvert = !ouvert;
+      appliquer();
+    });
+
+    box.appendChild(entete);
+    box.appendChild(contenu);
   }
 }
+/* --- fin rendu des brouillons --- */
 
 $("recherche").addEventListener("input", rendreArticles);
 
