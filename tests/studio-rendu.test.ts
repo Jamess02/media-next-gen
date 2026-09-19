@@ -227,10 +227,43 @@ describe("rendu — les plus recents restent visibles", () => {
     // « Bien evidemment les articles les plus recents doivent etre visibles
     // sur la page » : replier toutes les categories les cacherait.
     const { recents } = rendre(JEU);
-    const titres = parClasse(recents, "t").map((n) => n.textContent);
-    expect(titres.length).toBeGreaterThan(0);
-    expect(titres[0]).toBe("BC recent");
-    expect(titres[1]).toBe("Macro recent");
+    const lignes = parClasse(recents, "recent");
+    expect(lignes.length).toBeGreaterThan(0);
+    expect(lignes[0]?.textContent).toMatch(/BC recent/);
+    expect(lignes[1]?.textContent).toMatch(/Macro recent/);
+  });
+
+  it("les rend COMPACTS : ni carte, ni second formulaire de validation", () => {
+    // Une carte pleine par recent poussait la premiere categorie a plus de
+    // mille pixels sous la ligne de flottaison — l'editeur ne les voyait pas.
+    // Et le meme article portait DEUX formulaires de relecture, dont l'un ne
+    // se serait pas mis a jour apres l'autre.
+    const { recents } = rendre(JEU);
+    expect(parClasse(recents, "carte")).toHaveLength(0);
+    expect(parClasse(recents, "relire")).toHaveLength(0);
+  });
+
+  it("montre la date et la thematique de chaque recent", () => {
+    const { recents } = rendre(JEU);
+    const premier = parClasse(recents, "recent")[0]?.textContent ?? "";
+    expect(premier).toMatch(/2026-09-19/);
+    expect(premier).toMatch(/banques centrales/);
+  });
+
+  it("OUVRE la categorie quand on clique un recent", () => {
+    const { recents, boite } = rendre(JEU);
+    const macro = parClasse(boite, "groupe")[1] as Noeud;
+    expect(macro.className, "les categories doivent partir repliees").toMatch(/replie/);
+
+    const ligne = parClasse(recents, "recent").find((n) =>
+      n.textContent.includes("Macro recent"),
+    );
+    expect(ligne?.handlers["click"], "un recent n'est pas cliquable").toBeTypeOf(
+      "function",
+    );
+    ligne?.handlers["click"]?.();
+
+    expect(macro.className, "la categorie est restee fermee").not.toMatch(/replie/);
   });
 
   it("ne repete pas indefiniment : les recents sont bornes", () => {
@@ -238,7 +271,19 @@ describe("rendu — les plus recents restent visibles", () => {
       article(`A${i}`, "macroeconomie", `2026-09-${String(28 - i).padStart(2, "0")}T08:00:00Z`),
     );
     const { recents } = rendre(beaucoup);
-    expect(parClasse(recents, "carte").length).toBeLessThanOrEqual(6);
+    expect(parClasse(recents, "recent").length).toBeLessThanOrEqual(6);
+  });
+});
+
+describe("disposition — les categories d'abord", () => {
+  it("place les categories AVANT les recents dans la page", () => {
+    // L'ordre inverse les rendait invisibles : six cartes pleines les
+    // repoussaient hors de l'ecran.
+    const categories = STUDIO_PAGE.indexOf('id="articles"');
+    const recents = STUDIO_PAGE.indexOf('id="derniers-brouillons"');
+    expect(categories).toBeGreaterThan(-1);
+    expect(recents).toBeGreaterThan(-1);
+    expect(categories).toBeLessThan(recents);
   });
 });
 

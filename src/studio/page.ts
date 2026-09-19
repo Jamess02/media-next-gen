@@ -101,6 +101,16 @@ button[disabled]{opacity:.45;cursor:not-allowed}
 .groupe-thematique .n{color:var(--gris)}
 .groupe{margin:0 0 16px;padding-left:11px;border-left:2px solid var(--trait)}
 .groupe.replie{display:none}
+
+/* Les recents sont COMPACTS. Une carte pleine par article poussait la premiere
+   categorie a plus de mille pixels sous la ligne de flottaison, et donnait au
+   meme brouillon deux formulaires de validation. */
+.recent{display:block;width:100%;text-align:left;font:inherit;font-size:12px;
+  color:var(--gris);background:none;border:0;border-bottom:1px solid var(--trait);
+  padding:7px 2px;cursor:pointer}
+.recent:hover{color:var(--encre)}
+.recent .d{font-family:var(--mono);font-size:11px;color:var(--gris-clair);margin-right:8px}
+.recent .th{font-family:var(--mono);font-size:11px;color:var(--gris-clair);margin-right:8px}
 /* --- relecture ------------------------------------------------------------
    Le bloc de validation est visuellement distinct du reste : c'est le seul
    endroit de l'interface ou une action engage une PERSONNE, pas la machine. */
@@ -188,11 +198,11 @@ header{position:relative}
              placeholder="chercher : titre ou thematique">
       <span id="compte-recherche" class="compte"></span>
     </div>
-    <div class="sous-section">les plus recents</div>
-    <div id="derniers-brouillons"></div>
-
     <div class="sous-section">par thematique</div>
     <div id="articles"><div class="vide">Chargement…</div></div>
+
+    <div class="sous-section">les plus recents</div>
+    <div id="derniers-brouillons"></div>
 
     <div class="section">journal d'audit (§9.4)</div>
     <ul class="brut" id="audit"></ul>
@@ -282,16 +292,10 @@ function rendreArticles() {
     ? retenus.length + " sur " + ARTICLES.length
     : ARTICLES.length + " brouillon(s)";
 
-  // --- Les plus recents, quelle que soit leur categorie ------------------
-  const recents = $("derniers-brouillons");
-  recents.textContent = "";
-  for (const a of parDateDecroissante(retenus).slice(0, 6)) {
-    recents.appendChild(carteArticle(a));
-  }
-
-  // --- Les categories ----------------------------------------------------
   const box = $("articles");
+  const recents = $("derniers-brouillons");
   box.textContent = "";
+  recents.textContent = "";
 
   if (retenus.length === 0) {
     const v = document.createElement("div");
@@ -313,6 +317,10 @@ function rendreArticles() {
     }
     parThematique[a.thematique].push(a);
   }
+
+  // De quoi ouvrir une categorie depuis ailleurs : un recent sur lequel on
+  // clique doit derouler la sienne, sinon le raccourci ne mene nulle part.
+  const ouvrir = {};
 
   for (const thematique of ordre) {
     const articles = parDateDecroissante(parThematique[thematique]);
@@ -339,9 +347,44 @@ function rendreArticles() {
       ouvert = !ouvert;
       appliquer();
     });
+    ouvrir[thematique] = () => {
+      ouvert = true;
+      appliquer();
+    };
 
     box.appendChild(entete);
     box.appendChild(contenu);
+  }
+
+  // --- Les plus recents, en RACCOURCI ------------------------------------
+  //
+  // Compacts, et sans formulaire de validation : une carte pleine par recent
+  // repoussait la premiere categorie hors de l'ecran, et donnait au meme
+  // brouillon deux formulaires dont l'un se serait tu apres l'autre.
+  for (const a of parDateDecroissante(retenus).slice(0, 6)) {
+    const ligne = document.createElement("button");
+    ligne.className = "recent";
+    ligne.setAttribute("type", "button");
+
+    const date = document.createElement("span");
+    date.className = "d";
+    date.textContent = a.publie.slice(0, 10);
+    const th = document.createElement("span");
+    th.className = "th";
+    th.textContent = a.thematique;
+    const titre = document.createElement("span");
+    titre.textContent = a.titre;
+
+    ligne.appendChild(date);
+    ligne.appendChild(th);
+    ligne.appendChild(titre);
+
+    ligne.addEventListener("click", () => {
+      const f = ouvrir[a.thematique];
+      if (f) f();
+    });
+
+    recents.appendChild(ligne);
   }
 }
 /* --- fin rendu des brouillons --- */
