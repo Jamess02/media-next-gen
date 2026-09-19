@@ -38,6 +38,67 @@ const item = (o: Partial<Record<string, string>> = {}) => `
     <description>${o["description"] ?? "Le taux directeur est maintenu."}</description>
   </item>`;
 
+describe("cache et debit — optionnels, donc sans effet sur les flux existants", () => {
+  const appels = (): number =>
+    (globalThis.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+
+  it("SANS delai de cache, chaque collecte interroge la source", () => {
+    // Le comportement de tous les flux deja branches : rien ne change pour eux.
+    expect(base).not.toHaveProperty("ttlMs");
+  });
+
+  it("interroge deux fois quand aucun cache n'est demande", async () => {
+    stub(rss(item()));
+    const a = rssAdapter(base);
+    await a.fetch(QUERY);
+    await a.fetch(QUERY);
+    expect(appels()).toBe(2);
+  });
+
+  it("SERT la seconde collecte depuis le cache", async () => {
+    // Une vague produit six articles : sans cache, six requetes identiques
+    // partent vers une source qui n'autorise qu'une requete toutes les trois
+    // secondes.
+    stub(rss(item()));
+    const a = rssAdapter({ ...base, ttlMs: 60_000, cacheDir: null });
+    await a.fetch(QUERY);
+    await a.fetch(QUERY);
+    expect(appels(), "la seconde collecte a retape la source").toBe(1);
+  });
+
+  it("CONSERVE la date de la requete d'origine", async () => {
+    // Sinon l'article daterait l'observation du moment ou il la relit, et
+    // pretendrait une fraicheur qu'elle n'a pas (§5.1).
+    stub(rss(item()));
+    const a = rssAdapter({ ...base, ttlMs: 60_000, cacheDir: null });
+    const premier = await a.fetch(QUERY);
+    const second = await a.fetch(QUERY);
+    expect(second.observations[0]?.date_observed).toBe(
+      premier.observations[0]?.date_observed,
+    );
+  });
+
+  it("ne met JAMAIS un echec en cache", async () => {
+    // Un 503 servi pendant tout le delai masquerait le retablissement de la
+    // source, et l'article porterait « source indisponible » sans raison.
+    stub("", false, 503);
+    const a = rssAdapter({ ...base, ttlMs: 60_000, cacheDir: null });
+    await a.fetch(QUERY).catch(() => undefined);
+    await a.fetch(QUERY).catch(() => undefined);
+    expect(appels(), "l'echec a ete mis en cache").toBe(2);
+  });
+
+  it("ne met pas en cache un flux dont la forme a change", async () => {
+    // Meme raison : un schema casse servi pendant tout le delai masquerait la
+    // reparation du fournisseur.
+    stub("<html>page d'erreur</html>");
+    const a = rssAdapter({ ...base, ttlMs: 60_000, cacheDir: null });
+    await a.fetch(QUERY).catch(() => undefined);
+    await a.fetch(QUERY).catch(() => undefined);
+    expect(appels()).toBe(2);
+  });
+});
+
 describe("analyse du flux", () => {
   it("lit un flux RSS", async () => {
     stub(rss(item()));

@@ -112,6 +112,11 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "reuters.com", tier: 3, name: "Reuters" },
   { domain: "acleddata.com", tier: 3, name: "ACLED" },
   { domain: "sipri.org", tier: 3, name: "SIPRI" },
+  // Prepublication : arXiv est bien l'EMETTEUR du document, mais aucun comite
+  // de lecture n'est passe. Le tier dit ici ce que vaut le CONTENU pour fonder
+  // un fait, pas le serieux de l'archive — d'ou le tier 3 malgre l'institution,
+  // et le caveat qui le redit dans chaque observation.
+  { domain: "arxiv.org", tier: 3, name: "arXiv (prepublication)" },
   // Acteurs du marche qu'ils commentent. Le tier 3 dit leur distance a la
   // donnee ; leur interet est declare separement et sa mention en gras est
   // exigee par une regle bloquante (protocol/interests.ts).

@@ -9,6 +9,10 @@
  *   FRED      : "." converti en 0, et clef d'API dans l'URL
  */
 
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildSourceCatalogue } from "../src/sources/catalogue.js";
@@ -17,6 +21,7 @@ import { fredAdapter } from "../src/sources/fred.js";
 import { imfAdapter } from "../src/sources/imf.js";
 import { usgsAdapter } from "../src/sources/usgs.js";
 import { classifySource } from "../src/sources/registry.js";
+import type { SourceAdapter } from "../src/sources/types.js";
 import { lastFetchedUrl, stubFetch } from "./helpers.js";
 
 const QUERY = { topic: "test", since: "2026-01-01T00:00:00Z" };
@@ -389,6 +394,144 @@ describe("catalogue des sources", () => {
     // navigateur, ce que ce projet n'autorise pas.
     expect(motif("smithsonian:volcans")).toMatch(/403/);
     expect(motif("consilium:communiques")).toMatch(/403/);
+  });
+
+  it("branche arXiv pour la veille technologique", () => {
+    expect(buildSourceCatalogue({}).adapters.map((a) => a.id)).toContain("arxiv:ia");
+  });
+
+  it("classe arXiv en TIER 3 : une prepublication n'etablit rien", () => {
+    // Decision de l'editeur du 2026-09-19. arXiv est bien l'emetteur du
+    // document, mais le document n'a ete relu par personne : le tier dit ici
+    // ce que vaut le CONTENU pour fonder un fait, et la mention le redit.
+    const c = classifySource("https://arxiv.org/abs/2609.20822v1");
+    expect(c.tier).toBe(3);
+    expect(c.registered, "domaine absent du registre : tier 3 par defaut").toBe(true);
+    expect(c.name).toMatch(/arXiv/i);
+  });
+
+  it("accole a chaque observation la mention de PREPUBLICATION", async () => {
+    // Sans elle, « des chercheurs montrent que... » se lirait comme un
+    // resultat etabli, alors qu'aucun comite de lecture n'est passe.
+    const arxiv = buildSourceCatalogue({}).adapters.find((a) => a.id === "arxiv:ia");
+    expect(arxiv, "arXiv absent du catalogue").toBeDefined();
+
+    stubFetch(undefined, {
+      asText: `<?xml version="1.0"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <title>Un travail sur les modeles de langage</title>
+            <link href="https://arxiv.org/abs/2609.20822v1" rel="alternate"/>
+            <published>2026-09-17T17:59:58Z</published>
+            <summary>Resume du travail.</summary>
+          </entry>
+        </feed>`,
+    });
+
+    const r = await (arxiv as SourceAdapter).fetch({
+      topic: "modeles de langage",
+      since: "2026-01-01T00:00:00Z",
+    });
+    expect(r.observations[0]?.resume).toMatch(/prepublication/i);
+    expect(r.observations[0]?.url).toBe("https://arxiv.org/abs/2609.20822v1");
+  });
+
+  /* ---- Debit et cache : la partie qui n'a AUCUN code de retour pour alerter -- */
+
+  const FLUX_ARXIV = `<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Un travail sur les modeles de langage</title>
+        <link href="https://arxiv.org/abs/2609.20822v1" rel="alternate"/>
+        <published>2026-09-17T17:59:58Z</published>
+        <summary>Resume du travail.</summary>
+      </entry>
+    </feed>`;
+
+  /** Bouchon qui DATE chaque depart : c'est la mesure du test. */
+  function stubQuiDate(): number[] {
+    const departs: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        departs.push(Date.now());
+        return { ok: true, status: 200, text: async () => FLUX_ARXIV };
+      }),
+    );
+    return departs;
+  }
+
+  const arxivDeLaSuite = (): SourceAdapter => {
+    const a = buildSourceCatalogue({}).adapters.find((x) => x.id === "arxiv:ia");
+    if (a === undefined) throw new Error("arXiv absent du catalogue");
+    return a;
+  };
+
+  let cacheTmp: string;
+  let cacheAvant: string | undefined;
+
+  beforeEach(async () => {
+    // Dossier NEUF a chaque test. Sans lui, la deuxieme execution de la suite
+    // lirait le cache laisse par la premiere : zero requete, et le test du
+    // debit ne mesurerait plus rien tout en restant vert.
+    cacheTmp = await mkdtemp(join(tmpdir(), "mng-arxiv-"));
+    cacheAvant = process.env["SOURCES_CACHE_DIR"];
+    // Lue a la CONSTRUCTION du catalogue : la poser ici suffit, et chaque test
+    // repart d"un cache vide sans dependre de ce que le precedent a ecrit.
+    process.env["SOURCES_CACHE_DIR"] = cacheTmp;
+  });
+
+  afterEach(async () => {
+    if (cacheAvant === undefined) delete process.env["SOURCES_CACHE_DIR"];
+    else process.env["SOURCES_CACHE_DIR"] = cacheAvant;
+    await rm(cacheTmp, { recursive: true, force: true });
+  });
+
+  it("ESPACE de 3 s deux collectes arXiv concurrentes (conditions d'usage)", async () => {
+    // arXiv formule sa limite en conditions d'usage, pas en code de retour :
+    // « no more than one request every three seconds ». Aucun 429 ne viendra
+    // nous avertir qu'on la franchit — on serait simplement en faute.
+    //
+    // CONCURRENTES, et c'est tout le sujet : une vague produit six articles et
+    // la passerelle interroge les sources de chacun. Le cache n'aide pas ici,
+    // puisque les six partent avant que la premiere reponse ne soit revenue.
+    //
+    // CE TEST ATTEND VRAIMENT TROIS SECONDES. Les horloges feintes de vitest
+    // suspendent la chaine (essaye : expiration a 5 s sans rien mesurer), et
+    // injecter une horloge obligerait a construire l'adaptateur a la main —
+    // donc a ne plus prouver ce qui compte ici : que le CATALOGUE a bien pose
+    // l'intervalle sur arXiv. Trois secondes une fois, contre le risque
+    // d'etre en faute vis-a-vis d'une source, est un prix honnete.
+    const departs = stubQuiDate();
+    const arxiv = arxivDeLaSuite();
+    await Promise.all([arxiv.fetch(QUERY), arxiv.fetch(QUERY)]);
+
+    expect(departs.length, "les deux collectes n'ont pas atteint le reseau").toBe(2);
+    expect((departs[1] ?? 0) - (departs[0] ?? 0)).toBeGreaterThanOrEqual(3_000);
+  });
+
+  it("MET EN CACHE le flux arXiv : la seconde collecte ne repart pas", async () => {
+    // Le flux ne change qu'une fois par jour. Redemander a chaque article
+    // d'une meme vague consommerait le debit sans rien apprendre.
+    const departs = stubQuiDate();
+    const arxiv = arxivDeLaSuite();
+
+    await arxiv.fetch(QUERY);
+    await arxiv.fetch(QUERY);
+
+    expect(departs.length, "le flux est redemande a chaque collecte").toBe(1);
+  });
+
+  it("ECRIT dans la racine imposee, jamais dans le cache du depot", async () => {
+    // Le defaut qui a motive SOURCES_CACHE_DIR, constate le 2026-09-19 : la
+    // suite deposait son flux BOUCHONNE dans .cache/sources, ou le vrai
+    // pipeline l'aurait servi pendant une heure comme s'il venait d'arXiv. Un
+    // article aurait cite une prepublication fabriquee par un test.
+    stubQuiDate();
+    await arxivDeLaSuite().fetch(QUERY);
+
+    const ecrit = await readdir(cacheTmp);
+    expect(ecrit.length, "rien n'a ete ecrit dans la racine imposee").toBeGreaterThan(0);
   });
 
   it("branche les sources du 2026-09-19 dont le flux repond reellement", () => {

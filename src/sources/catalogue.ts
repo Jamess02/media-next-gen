@@ -47,6 +47,24 @@ const PRESSE_CAVEAT =
   "un fait a elle seule (§3, EP-001) ; a confronter aux sources primaires.";
 
 /**
+ * Debit impose par arXiv, cite depuis ses conditions d'usage (2026-09-19) :
+ * « no more than one request every three seconds, and limit requests to a
+ * single connection ». Les contourner y est explicitement interdit.
+ *
+ * Ce n'est PAS une limite defendue par un code de retour : aucun 429 ne
+ * viendra nous avertir qu'on la franchit. D'ou une constante nommee, datee, et
+ * lisible — une valeur posee en clair dans un appel se serait perdue.
+ */
+const ARXIV_INTERVALLE_MS = 3_000;
+
+/**
+ * Duree de cache d'arXiv. Le flux ne bouge qu'une fois par jour ouvre ; une
+ * heure evite de redemander a chaque article d'une meme vague sans jamais
+ * servir une liste veritablement perimee.
+ */
+const ARXIV_TTL_MS = 3_600_000;
+
+/**
  * Recupere un interet declare par son domaine.
  *
  * Le catalogue ne redige PAS la mention : il la demande au registre. Si la
@@ -420,6 +438,44 @@ export function buildSourceCatalogue(
       type: "commentaire-acteur-du-marche",
       limit: 2,
       caveat: interestCaveat(interet("castleisland.vc")),
+    }),
+
+    // --- Tier 3 : prepublications scientifiques ----------------------------
+    //
+    // MESURE du 2026-09-19 : l'API repond 200 en application/atom+xml, et les
+    // liens "rel=alternate" sont en HTTPS — les <id>, eux, sont servis en
+    // http, et c'est bien le lien que l'adaptateur retient, pas l'identifiant.
+    //
+    // TIER 3, ET CE N'EST PAS UNE SEVERITE DE PLUS. arXiv est l'emetteur du
+    // document, ce qui plaiderait pour un tier haut ; mais le tier dit ce que
+    // vaut le contenu pour FONDER UN FAIT, et une prepublication est un travail
+    // que personne n'a relu. « Des chercheurs montrent que... » se lit comme un
+    // resultat etabli : c'est exactement la phrase que le caveat doit empecher.
+    //
+    // DEBIT. Les conditions d'usage d'arXiv, relevees le 2026-09-19, imposent
+    // « no more than one request every three seconds », et les contourner y est
+    // explicitement interdit. Aucun 429 ne viendra nous avertir : on serait
+    // simplement en faute. D'ou l'espaceur, et le cache — une vague produit six
+    // articles, donc six collectes, pour un flux qui ne change qu'une fois par
+    // jour.
+    rssAdapter({
+      id: "arxiv:ia",
+      source: "arXiv",
+      url:
+        "https://export.arxiv.org/api/query?search_query=cat:cs.AI+OR+cat:cs.LG+OR+cat:cs.CL" +
+        "&sortBy=submittedDate&sortOrder=descending&max_results=15",
+      describes:
+        "Prepublications recentes en intelligence artificielle, apprentissage " +
+        "automatique et traitement du langage (arXiv cs.AI, cs.LG, cs.CL)",
+      type: "prepublication",
+      limit: 3,
+      intervalleMs: ARXIV_INTERVALLE_MS,
+      ttlMs: ARXIV_TTL_MS,
+      caveat:
+        "PREPUBLICATION arXiv : deposee par ses auteurs, relue par AUCUN comite " +
+        "de lecture (§3). Un resultat annonce ici n'est pas un fait etabli ; les " +
+        "chiffres sont ceux des auteurs, et la methode n'a ete auditee par " +
+        "personne (EP-001).",
     }),
   ];
 

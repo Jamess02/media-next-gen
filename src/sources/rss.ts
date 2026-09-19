@@ -22,10 +22,40 @@
  * ressortent avec des tiers differents, ce qui est exactement le but.
  */
 
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { FetchOutcome, Observation, SourceAdapter, SourceQuery } from "./types.js";
+import { CacheDeReponses } from "./cache.js";
+import { Espaceur } from "./debit.js";
 import { SourceFetchError, readBodyCapped, safeFetch } from "./http.js";
 
 const TIMEOUT_MS = 20_000;
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+/** Hors versionnement : c'est un cache, pas du code (voir .gitignore). */
+const CACHE_DU_DEPOT = join(HERE, "..", "..", ".cache", "sources");
+
+/**
+ * Racine du cache des flux, surchargeable par `SOURCES_CACHE_DIR`.
+ *
+ * POURQUOI CE LEVIER EXISTE. Un test qui construit le catalogue et bouchonne
+ * `fetch` ecrivait son FLUX FABRIQUE dans le cache de production, ou le vrai
+ * pipeline l'aurait ensuite servi pendant toute la duree du TTL comme s'il
+ * venait de la source. Constate le 2026-09-19, une minute apres avoir branche
+ * le cache d'arXiv : la suite avait depose un faux flux dans .cache/sources.
+ *
+ * LUE A LA CONSTRUCTION, pas au chargement du module : un test qui veut un
+ * cache neuf pose la variable puis reconstruit le catalogue. Une constante de
+ * module aurait fige la valeur du tout premier import.
+ *
+ * Accessoirement, un deploiement en conteneur peut ainsi pointer un volume qui
+ * survit au redemarrage.
+ */
+function racineDuCache(): string {
+  const brut = process.env["SOURCES_CACHE_DIR"];
+  return brut !== undefined && brut.trim().length > 0 ? brut.trim() : CACHE_DU_DEPOT;
+}
 
 export interface RssAdapterOptions {
   /** Identifiant stable de l'adaptateur. */
@@ -43,6 +73,24 @@ export interface RssAdapterOptions {
    * accompagner la donnee — ligne editoriale connue, statut officiel.
    */
   caveat?: string;
+  /**
+   * Duree de validite en cache. Absente : aucune mise en cache, comportement
+   * inchange pour les flux deja branches.
+   *
+   * Une vague produit six articles, et la passerelle interroge les sources de
+   * chacun : sans cache, six requetes identiques partent vers une source qui,
+   * pour certaines, n'en autorise qu'une toutes les trois secondes.
+   */
+  ttlMs?: number;
+  /** Racine du cache. `null` : memoire seule — ce que font les tests. */
+  cacheDir?: string | null;
+  /**
+   * Espacement minimal entre deux requetes vers cette source. Absent : aucun.
+   *
+   * Pour les fournisseurs qui formulent leur limite en conditions d'usage
+   * plutot qu'en code de retour : aucun 429 ne viendra avertir.
+   */
+  intervalleMs?: number;
 }
 
 /** Retire les CDATA et decode les entites les plus courantes. */
@@ -120,6 +168,22 @@ function dateIso(bloc: string): string | null {
 
 export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
   const limit = options.limit ?? 4;
+  const ttlMs = options.ttlMs ?? 0;
+
+  // Crees UNE fois par adaptateur : un cache et une file recrees a chaque
+  // collecte ne serviraient jamais et n'espaceraient rien.
+  const cache =
+    ttlMs > 0
+      ? new CacheDeReponses({
+          id: options.id.replace(/[^a-z0-9]+/gi, "-"),
+          dir: options.cacheDir === undefined ? racineDuCache() : options.cacheDir,
+        })
+      : null;
+
+  const espaceur =
+    options.intervalleMs !== undefined && options.intervalleMs > 0
+      ? new Espaceur({ intervalleMs: options.intervalleMs })
+      : null;
 
   return {
     id: options.id,
@@ -129,30 +193,49 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
       // `redirect: "follow"` etait ici la faille : un flux qui redirige vers
       // 169.254.169.254 ou vers la boucle locale faisait emettre la requete par
       // notre infrastructure. `safeFetch` valide chaque saut AVANT de l'appeler.
-      const reponse = await safeFetch(
-        options.url,
-        {
-          headers: {
-            "user-agent": "media-next-gen (pipeline editorial)",
-            accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
-          },
-        },
-        options.source,
-        TIMEOUT_MS,
-      );
+      // Le cache porte le XML BRUT, pas les observations : le filtrage depend
+      // du sujet de l'article, si bien qu'une meme reponse sert six sujets
+      // differents. L'horodatage est celui de la requete d'ORIGINE — sans lui,
+      // l'article daterait l'observation du moment ou il la relit (§5.1).
+      const enCache = cache === null ? null : await cache.lire(options.url);
+      let xml: string;
+      let horodatage: string;
 
-      if (!reponse.ok) {
-        throw new SourceFetchError(
-          options.source,
-          options.url,
-          `HTTP ${reponse.status}`,
-          reponse.status,
-        );
+      if (enCache !== null) {
+        xml = enCache.corps as string;
+        horodatage = enCache.horodatageRequete;
+      } else {
+        horodatage = new Date().toISOString();
+        const appel = (): Promise<Response> =>
+          safeFetch(
+            options.url,
+            {
+              headers: {
+                "user-agent": "media-next-gen (pipeline editorial)",
+                accept:
+                  "application/rss+xml, application/atom+xml, application/xml, text/xml",
+              },
+            },
+            options.source,
+            TIMEOUT_MS,
+          );
+
+        const reponse = espaceur === null ? await appel() : await espaceur.passer(appel);
+
+        if (!reponse.ok) {
+          throw new SourceFetchError(
+            options.source,
+            options.url,
+            `HTTP ${reponse.status}`,
+            reponse.status,
+          );
+        }
+
+        // Plafonne AVANT l'analyse : sur un corps demesure, la regex
+        // d'extraction part en explosion combinatoire (worker tue en test).
+        xml = await readBodyCapped(reponse, options.source, options.url);
       }
 
-      // Plafonne AVANT l'analyse : sur un corps demesure, la regex d'extraction
-      // part en explosion combinatoire (worker tue en test).
-      const xml = await readBodyCapped(reponse, options.source, options.url);
       const blocs = [
         ...xml.matchAll(/<item[\s>][\s\S]*?<\/item>/gi),
         ...xml.matchAll(/<entry[\s>][\s\S]*?<\/entry>/gi),
@@ -164,6 +247,19 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
           options.url,
           "aucune entree : le flux a change de forme ou est vide",
         );
+      }
+
+      // MIS EN CACHE APRES CONTROLE, jamais avant : un echec ou un flux dont la
+      // forme a change, servi pendant tout le delai, masquerait le
+      // retablissement de la source — et l'article porterait « source
+      // indisponible » sans raison.
+      if (cache !== null && enCache === null) {
+        await cache.ecrire({
+          url: options.url,
+          horodatageRequete: horodatage,
+          expireA: Date.now() + ttlMs,
+          corps: xml,
+        });
       }
 
       const depuis = Date.parse(query.since);
@@ -206,7 +302,7 @@ export function rssAdapter(options: RssAdapterOptions): SourceAdapter {
       const observations: Observation[] = entrees.map((e) => ({
         source: options.source,
         url: e.url as string,
-        date_observed: new Date().toISOString(),
+        date_observed: horodatage,
         date_published: e.date,
         type: options.type ?? "flux-editeur",
         resume:
