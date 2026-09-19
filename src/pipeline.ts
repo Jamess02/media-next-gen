@@ -537,6 +537,11 @@ export class EditorialPipeline {
         // Meme source que pour le Redacteur : le registre que le gate relira.
         requiredAttributions: attributionsExigees(gate.accepted),
         sourceMaterial: materielEnquete,
+        // Porte par l'entree COMMUNE : le plan comme chaque chapitre les
+        // recoivent. Le secretaire ne connait que « l'Investigateur », il ne
+        // distingue pas la structure de l'ecriture — c'est ici que les deux
+        // sont servis d'un coup.
+        consignesDeRelecture: consignesPour("investigateur"),
       };
 
       /* --- Passe 1 : decider et planifier ------------------------------ */

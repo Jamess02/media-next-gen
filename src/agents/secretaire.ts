@@ -53,6 +53,7 @@ export const DESTINATAIRES_DE_CONSIGNE = [
   "veilleur",
   "analyste",
   "redacteur",
+  "investigateur",
 ] as const;
 
 export type DestinataireDeConsigne = (typeof DESTINATAIRES_DE_CONSIGNE)[number];
@@ -128,10 +129,14 @@ LES DESTINATAIRES, et ce dont chacun s'occupe :
 - redacteur : l'ECRITURE. « trop court », « developper les consequences »,
   « expliquer comment la donnee est mesuree ». Il met en forme ce qui existe
   deja dans le materiau, il ne va rien chercher.
-Une remarque qui ne vise aucun de ces trois agents — sur la verification, sur
-l'angle, ou sur le format long des enquetes — ne se transmet pas : elle
-n'aurait nulle part ou aller. Laisse-la de cote plutot que de la ranger de
-force.
+- investigateur : le format LONG. Meme regime de preuve que le redacteur, mais
+  pour les enquetes : structure des chapitres, contradictoire, echeances a
+  nommer. Une remarque sur la longueur ou sur ce qui manque a une enquete lui
+  revient.
+
+Une remarque qui ne vise aucun de ces quatre agents — sur la verification ou
+sur l'angle, par exemple — ne se transmet pas : elle n'aurait nulle part ou
+aller. Laisse-la de cote plutot que de la ranger de force.
 
 REGLES, et elles sont strictes :
 

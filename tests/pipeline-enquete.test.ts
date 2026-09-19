@@ -17,7 +17,7 @@
  * le changelog du projet ne sont touches.
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Editeur } from "../src/agents/editeur.js";
 import { AuditLog } from "../src/audit/audit-log.js";
 import { EditorialChangelog } from "../src/editorial/changelog.js";
+import { ADAPTIVE_RESPONDERS } from "../src/fixtures/adaptive-responders.js";
 import { MOCK_RESPONDERS } from "../src/fixtures/mock-scenario.js";
 import { MockLlmClient, type MockResponder } from "../src/llm/mock-client.js";
 import { EditorialPipeline, type PipelineResult } from "../src/pipeline.js";
@@ -129,6 +130,8 @@ async function lancer(options: {
   investigations?: readonly Investigation[];
   /** Sources en plus de la fixture, pour un test qui en a besoin. */
   adapters?: readonly SourceAdapter[];
+  /** Attestations de relecture, d'ou viennent les consignes (§6). */
+  publishedDir?: string;
 }): Promise<PipelineResult> {
   const audit = new AuditLog({ dir: join(workDir, "audit") });
   const pipeline = new EditorialPipeline({
@@ -147,6 +150,7 @@ async function lancer(options: {
     adapters: [...MOCK_ADAPTERS, ...SOURCES_SUPPLEMENTAIRES, ...(options.adapters ?? [])],
     mode: "enquete",
     investigations: options.investigations ?? [],
+    ...(options.publishedDir === undefined ? {} : { publishedDir: options.publishedDir }),
     editeur: new Editeur(
       join(workDir, "output"),
       new EditorialChangelog(join(workDir, "changelog.md")),
@@ -399,5 +403,51 @@ describe("mode enquete — le role des chapitres atteint le contrat", () => {
       },
     });
     expect(r.status).toBe("published");
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * §6 — les consignes de relecture atteignent l'Investigateur
+ * ---------------------------------------------------------------------- */
+
+describe("mode enquete — les observations des relecteurs arrivent", () => {
+  it("TRANSMET a l'Investigateur une consigne qui vise le format long", async () => {
+    // Le cablage existait sans etre couvert : retirer la transmission du
+    // pipeline ne faisait tomber aucun test — constate par mutation. Le fichier
+    // de l'agent savait recevoir des consignes, mais rien ne verifiait que le
+    // pipeline les lui passait.
+    const publies = join(workDir, "articles");
+    await mkdir(publies, { recursive: true });
+    await writeFile(
+      join(publies, "ancien.review.json"),
+      JSON.stringify({
+        article_id: "ancien",
+        article_title: "Enquete precedente",
+        reviewer: "jemunzu",
+        reviewed_at: "2026-09-18T10:00:00Z",
+        content_sha256: "0".repeat(64),
+        note: "les enquetes manquent de contradictoire, developper cette partie",
+      }),
+      "utf8",
+    );
+
+    let vuParInvestigateur = "";
+    const investigateur: MockResponder = (requete) => {
+      vuParInvestigateur += requete.user;
+      return investigateurEnDeuxPasses(requete);
+    };
+
+    const r = await lancer({
+      publishedDir: publies,
+      responders: {
+        investigateur,
+        "secretaire-de-redaction": ADAPTIVE_RESPONDERS[
+          "secretaire-de-redaction"
+        ] as MockResponder,
+      },
+    });
+
+    expect(r.status, JSON.stringify(r)).toBe("published");
+    expect(vuParInvestigateur).toMatch(/contradictoire, developper/);
   });
 });

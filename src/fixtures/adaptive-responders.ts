@@ -192,7 +192,9 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
           ? "veilleur"
           : /chiffre|preuve|periode|unite|niveau/.test(n)
             ? "analyste"
-            : "redacteur";
+            : /enquete|chapitre|contradictoire|format long/.test(n)
+              ? "investigateur"
+              : "redacteur";
         return {
           destinataire,
           // La demande, debarrassee de la date et du nom du relecteur.

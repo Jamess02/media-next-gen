@@ -305,6 +305,17 @@ export interface InvestigateurInput {
    * paragraphe. Optionnel : une enquete sans donnee de marche n'en porte aucune.
    */
   requiredAttributions?: readonly string[];
+  /**
+   * Consignes de relecture qui visent le FORMAT LONG, reparties par le
+   * secretaire de redaction (§6) : structure des chapitres, contradictoire
+   * absent, echeances a nommer.
+   *
+   * Portees par l'entree COMMUNE, donc recues par le plan ET par chaque
+   * chapitre : une remarque sur la structure concerne le premier, une remarque
+   * sur l'ecriture les seconds, et le secretaire ne distingue pas les deux —
+   * il ne connait que l'Investigateur.
+   */
+  consignesDeRelecture?: readonly string[];
 }
 
 export interface ChapitreInput extends InvestigateurInput {
@@ -402,6 +413,7 @@ export class InvestigateurPlan extends Agent<InvestigateurInput, PlanEnquete> {
     return asJson({
       sujet: input.topic,
       criteres_ayant_justifie_l_enquete: input.criteres,
+      observations_des_relectures: input.consignesDeRelecture ?? [],
       matiere_source: input.sourceMaterial,
       claims_validees_immuables: input.claims,
       ecart_narratif_vs_donnees: input.narrativeVsData,
@@ -431,6 +443,7 @@ export class InvestigateurChapitre extends Agent<ChapitreInput, ChapitreEcrit> {
       },
       mots_vises: input.motsVises,
       chapitres_deja_ecrits: input.dejaEcrits,
+      observations_des_relectures: input.consignesDeRelecture ?? [],
       matiere_source: input.sourceMaterial,
       claims_validees_immuables: input.claims,
       ecart_narratif_vs_donnees: input.narrativeVsData,
