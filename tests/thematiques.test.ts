@@ -31,6 +31,7 @@ import { describe, expect, it } from "vitest";
 import {
   NON_CLASSE,
   THEMATIQUES,
+  thematiqueDeLArticle,
   thematiqueDesSources,
 } from "../src/sources/thematiques.js";
 
@@ -115,6 +116,37 @@ describe("plusieurs emetteurs", () => {
 
   it("ignore la presse : elle dit le SUPPORT, pas le sujet", () => {
     expect(thematiqueDesSources([u.presse, u.usgs])).toBe("risques naturels");
+  });
+});
+
+describe("les enquetes sont a part", () => {
+  it("range une ENQUETE sous investigateur, quels que soient ses emetteurs", () => {
+    // Demande de l'editeur du 2026-09-19. « investigateur » n'est pas un
+    // emetteur mais un FORMAT : une enquete sur la Fed cite FRED et tomberait
+    // sinon dans « banques centrales », noyee parmi les breves.
+    //
+    // Rien n'est devine pour autant : le mode est porte par le contrat §7.
+    expect(thematiqueDeLArticle("enquete", [u.fred])).toBe("investigateur");
+    expect(thematiqueDeLArticle("enquete", [u.usgs, u.ofac])).toBe("investigateur");
+  });
+
+  it("une enquete SANS aucune source reste une enquete", () => {
+    expect(thematiqueDeLArticle("enquete", [])).toBe("investigateur");
+  });
+
+  it("les autres modes suivent leurs EMETTEURS", () => {
+    expect(thematiqueDeLArticle("constat", [u.fred])).toBe("banques centrales");
+    expect(thematiqueDeLArticle("prospectif", [u.usgs])).toBe("risques naturels");
+  });
+
+  it("un article SANS mode suit ses emetteurs", () => {
+    // Trente et un brouillons sont anterieurs a l'introduction du champ : ils
+    // n'en portent pas, et doivent continuer d'etre ranges.
+    expect(thematiqueDeLArticle(undefined, [u.banqueMondiale])).toBe("macroeconomie");
+  });
+
+  it("compte investigateur parmi les thematiques", () => {
+    expect(THEMATIQUES).toContain("investigateur");
   });
 });
 

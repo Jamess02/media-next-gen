@@ -37,7 +37,7 @@ import {
 import { SuiviIndicateurs } from "../infographie/suivi.js";
 import {
   THEMATIQUES,
-  thematiqueDesSources,
+  thematiqueDeLArticle,
 } from "../sources/thematiques.js";
 import { EditorialPipeline } from "../pipeline.js";
 import {
@@ -185,7 +185,8 @@ async function lireArticles(
       ecartees: a.editorial_notes.excluded_claims.length,
       // Rangement DERIVE des emetteurs cites, jamais devine du titre. Il ne
       // quitte pas le studio : ni le contrat §7, ni l'article, ni le site.
-      thematique: thematiqueDesSources(
+      thematique: thematiqueDeLArticle(
+        a.mode,
         a.claims.flatMap((c) => c.sources.map((s) => s.url)),
       ),
     });

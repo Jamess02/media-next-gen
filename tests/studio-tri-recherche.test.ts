@@ -110,6 +110,21 @@ describe("studio — chaque brouillon porte sa thematique", () => {
     expect(par.get("Brouillon 3")).toBe("geopolitique");
   });
 
+  it("range une ENQUETE sous investigateur, malgre ses emetteurs", async () => {
+    // Le serveur doit transmettre le MODE, pas seulement les urls. Sans lui,
+    // une enquete sur la Fed retomberait dans « banques centrales » et se
+    // perdrait parmi les breves — et seul le test unitaire resterait vert.
+    const enquete = article({
+      id: "article-00000009-0000-4000-8000-000000000009",
+      title: "Enquete longue",
+      published_at: "2026-09-12T08:00:00Z",
+      mode: "enquete",
+      claims: [claim({ sources: [src(URLS.fred)] })],
+    });
+    const articles = await studio([enquete]);
+    expect(articles[0]?.thematique).toBe("investigateur");
+  });
+
   it("marque « non classe » plutot que de deviner", async () => {
     const articles = await studio([brouillon(4, URLS.inconnu, "2026-09-10T08:00:00Z")]);
     expect(articles[0]?.thematique).toBe(NON_CLASSE);

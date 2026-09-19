@@ -42,6 +42,10 @@ export const NON_CLASSE = "non classe";
  * d'un rafraichissement a l'autre sans que rien n'ait change.
  */
 export const THEMATIQUES = [
+  // Le format long, en tete : rare, et c'est ce qu'un relecteur cherche en
+  // priorite. Aucun emetteur n'y mene — il vient du MODE de l'article, pas de
+  // ses sources.
+  "investigateur",
   "banques centrales",
   "macroeconomie",
   "risques naturels",
@@ -109,6 +113,28 @@ const RANGEMENT: readonly { domaine: string; thematique: Thematique }[] = [
  * tous les sujets : il dit le support, pas la matiere. Un article qui n'en cite
  * pas d'autre ressort `NON_CLASSE`, ce qui est une information exacte.
  */
+/**
+ * Thematique d'un article : son FORMAT d'abord, ses emetteurs ensuite.
+ *
+ * Une enquete cite les memes emetteurs qu'une breve — FRED pour la Fed, l'USGS
+ * pour un seisme. La ranger par ses sources la noierait parmi vingt breves,
+ * alors que c'est le format que le relecteur cherche : deux mille mots
+ * demandent une autre attention que trois cents.
+ *
+ * Rien n'est devine pour autant. Le mode est porte par le contrat §7, comme le
+ * tier est porte par le registre : on lit une donnee, on ne l'invente pas.
+ *
+ * Un article SANS mode — les trente et un brouillons anterieurs a l'ajout du
+ * champ — suit ses emetteurs, comme avant.
+ */
+export function thematiqueDeLArticle(
+  mode: string | undefined,
+  urls: readonly string[],
+): string {
+  if (mode === "enquete") return "investigateur";
+  return thematiqueDesSources(urls);
+}
+
 export function thematiqueDesSources(urls: readonly string[]): string {
   const emetteurs = new Set<string>();
   for (const brut of urls) {
