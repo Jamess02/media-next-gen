@@ -34,6 +34,7 @@ import {
   resolveProvider,
   type ProviderName,
 } from "../llm/providers.js";
+import { SuiviIndicateurs } from "../infographie/suivi.js";
 import { EditorialPipeline } from "../pipeline.js";
 import {
   TAILLE_VAGUE,
@@ -280,6 +281,9 @@ async function executer(
     const pipeline = new EditorialPipeline({
       ctx: { llm: resolved.client, audit },
       adapters,
+      // Meme registre que le CLI : un article produit depuis le studio compte
+      // autant dans la comparaison entre editions.
+      suivi: new SuiviIndicateurs(),
       onStage: (etape, detail) => envoyer("etape", { etape, detail }),
     });
 
@@ -480,6 +484,7 @@ async function executerVagueSse(
           ctx: { llm: resolved.client, audit },
           adapters: catalogue.adapters,
           mode: sujet.mode,
+          suivi: new SuiviIndicateurs(),
         }).run(sujet.sujet),
       onProgres: (fait, total, sujet) =>
         envoyer("vague-progres", {

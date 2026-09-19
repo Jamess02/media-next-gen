@@ -60,6 +60,12 @@ import {
   evaluerSujet,
   type Investigation,
 } from "./planification/investigation.js";
+import { calculerEcart } from "./infographie/ecart.js";
+import {
+  SuiviIndicateurs,
+  periodeIso,
+  signalDEcartsRepetes,
+} from "./infographie/suivi.js";
 import { unifierUnitesDesFigures } from "./protocol/figures.js";
 import { attributionsExigees } from "./protocol/sources-de-marche.js";
 import { SourceGateway, estPertinent } from "./sources/gateway.js";
@@ -106,6 +112,15 @@ export interface PipelineOptions {
   ctx: AgentContext;
   adapters: readonly SourceAdapter[];
   editeur?: Editeur;
+  /**
+   * Registre de suivi des indicateurs, entre editions.
+   *
+   * INJECTE, et sans lui rien n'est ecrit. `SuiviIndicateurs` ecrit par defaut
+   * dans `data/tracking/`, a la racine du depot ; une persistance implicite
+   * remplirait d'articles de test un fichier dont toute la raison d'etre est
+   * qu'on n'y reecrit jamais. Le CLI le passe explicitement.
+   */
+  suivi?: SuiviIndicateurs;
   /** Borne basse de fraicheur (§5.1). Defaut : 30 jours glissants. */
   since?: string;
   /**
@@ -752,12 +767,80 @@ export class EditorialPipeline {
         );
       }
 
+      /* --- Suivi des indicateurs entre editions ---------------------------- */
+      //
+      // ENVELOPPE DANS UN try, et ce n'est pas de la prudence decorative :
+      // l'article est DEJA ecrit sur disque a ce point. Laisser remonter une
+      // erreur d'ecriture ferait perdre un article publie pour un probleme de
+      // journalisation — le suivi sert l'article, pas l'inverse. La panne est
+      // signalee au relecteur, jamais avalee en silence.
+      const suiviWarnings: Violation[] = [];
+      const suivi = this.options.suivi;
+      const infographie = published.article.infographie;
+      if (suivi !== undefined && infographie !== undefined) {
+        try {
+          const calcul = calculerEcart(infographie);
+          if (calcul.ok) {
+            await suivi.enregistrerEcart(calcul.ecart, {
+              period: periodeIso(new Date(published.article.published_at)),
+              // Le graphique est INLINE dans l'article : le fichier qui le
+              // porte est l'article lui-meme, pas une image a cote.
+              chart_file: published.markdownPath,
+              article_id: published.article.id,
+              // L'article a franchi le gate — dont INFOGRAPHIE_NON_TRACABLE,
+              // qui refuse toute composante sans source — puis le redacteur en
+              // chef. C'est ce que `factchecked` atteste, et rien de plus.
+              factchecked: true,
+            });
+
+            // Le signal ne porte QUE sur cet indicateur : une serie calculee
+            // sur des indicateurs confondus n'existerait pour aucun d'eux.
+            const historique = (await suivi.etatCourant()).filter(
+              (e) => e.indicator === infographie.indicateur,
+            );
+            const signal = signalDEcartsRepetes(historique);
+            if (signal !== null) {
+              suiviWarnings.push({
+                rule: "ECARTS_DE_MEME_SENS",
+                clause: "§5.4",
+                severity: "warning",
+                message:
+                  `${signal.indicator} : l'ecart entre anticipation et realise ` +
+                  `va dans le meme sens (${signal.sens}) sur ` +
+                  `${signal.periodes.length} periodes consecutives ` +
+                  `(${signal.periodes.join(", ")}). A remonter au redacteur en ` +
+                  `chef comme SIGNAL, pas comme conclusion : une repetition de ` +
+                  `ce genre tient a un phenomene reel autant qu'a une methode ` +
+                  `d'anticipation biaisee. C'est un sujet possible, a trancher.`,
+                path: "infographie",
+              });
+              this.onStage(
+                "validation",
+                `signal : ${signal.periodes.length} periodes de meme sens sur ${signal.indicator}`,
+              );
+            }
+          }
+        } catch (error) {
+          suiviWarnings.push({
+            rule: "SUIVI_INDISPONIBLE",
+            clause: "§9.4",
+            severity: "warning",
+            message:
+              `L'ecart n'a pas pu etre enregistre au suivi des indicateurs : ` +
+              `${error instanceof Error ? error.message : String(error)}. ` +
+              `L'article est publie ; c'est la comparaison entre editions qui ` +
+              `manquera, et le signal de repetition avec elle.`,
+            path: "infographie",
+          });
+        }
+      }
+
       return {
         status: "published",
         article: published.article,
         jsonPath: published.jsonPath,
         markdownPath: published.markdownPath,
-        warnings: [...published.warnings, ...chiefWarnings],
+        warnings: [...published.warnings, ...chiefWarnings, ...suiviWarnings],
         adjustments: gate.adjustments,
       };
     } catch (error) {

@@ -26,6 +26,7 @@ import {
   type Investigation,
 } from "./planification/investigation.js";
 import { AuditLog, verifyJournal } from "./audit/audit-log.js";
+import { SuiviIndicateurs } from "./infographie/suivi.js";
 import { verifyChangelog } from "./editorial/changelog.js";
 import { validateArticle } from "./editorial/validation.js";
 import { buildSite } from "./site/build.js";
@@ -309,6 +310,10 @@ async function publish(command: PublishCommand): Promise<void> {
     ctx: { llm, audit },
     adapters,
     mode: command.mode,
+    // Registre des indicateurs, en ajout seul. Injecte plutot qu'instancie par
+    // defaut dans le pipeline : sans cela, la suite de tests ecrirait dans
+    // data/tracking/ a chaque execution.
+    suivi: new SuiviIndicateurs(),
     // Historique reel, relu depuis les brouillons deja produits. Tenir un
     // fichier d etat separe le ferait diverger du contenu du dossier ; les
     // articles eux-memes portent leur mode et leur date, ce qui suffit.
@@ -668,6 +673,7 @@ async function vagueCommand(command: VagueCommand): Promise<void> {
           ctx: { llm: resolved.client, audit },
           adapters: catalogue.adapters,
           mode: sujet.mode,
+          suivi: new SuiviIndicateurs(),
         }).run(sujet.sujet),
       onProgres: (fait, total, sujet) =>
         console.log(`  [${fait}/${total}] ${sujet.mode.padEnd(10)} ${sujet.sujet}`),
