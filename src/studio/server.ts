@@ -35,6 +35,10 @@ import {
   type ProviderName,
 } from "../llm/providers.js";
 import { SuiviIndicateurs } from "../infographie/suivi.js";
+import {
+  THEMATIQUES,
+  thematiqueDesSources,
+} from "../sources/thematiques.js";
 import { EditorialPipeline } from "../pipeline.js";
 import {
   TAILLE_VAGUE,
@@ -179,13 +183,36 @@ async function lireArticles(
       })),
       incertitudes: a.editorial_notes.uncertainty_flags.length,
       ecartees: a.editorial_notes.excluded_claims.length,
+      // Rangement DERIVE des emetteurs cites, jamais devine du titre. Il ne
+      // quitte pas le studio : ni le contrat §7, ni l'article, ni le site.
+      thematique: thematiqueDesSources(
+        a.claims.flatMap((c) => c.sources.map((s) => s.url)),
+      ),
     });
   }
-  articles.sort((x, y) =>
-    String((y as { publie: string }).publie).localeCompare(
-      String((x as { publie: string }).publie),
-    ),
-  );
+
+  // Groupe par thematique, puis du plus recent au plus ancien A L'INTERIEUR de
+  // chaque groupe.
+  //
+  // LE TRI EST FAIT ICI, ET NON DANS LA PAGE. Un ordre calcule par le
+  // navigateur echapperait aux tests, et finirait par dependre de l'ordre de
+  // lecture du disque — qui n'est garanti par rien.
+  //
+  // « non classe » ferme la liste : ce sont les articles dont on sait le
+  // moins, pas ceux qu'il faut relire en premier.
+  const rang = (t: string): number => {
+    const i = (THEMATIQUES as readonly string[]).indexOf(t);
+    return i < 0 ? THEMATIQUES.length : i;
+  };
+
+  articles.sort((x, y) => {
+    const a = x as { publie: string; thematique: string };
+    const b = y as { publie: string; thematique: string };
+    return (
+      rang(a.thematique) - rang(b.thematique) ||
+      String(b.publie).localeCompare(String(a.publie))
+    );
+  });
   return articles;
 }
 

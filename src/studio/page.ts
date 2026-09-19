@@ -77,6 +77,18 @@ button[disabled]{opacity:.45;cursor:not-allowed}
 .badge.n0,.badge.n1{color:var(--faible)}
 .note-vague{color:var(--gris);font-size:11px}
 .vide{color:var(--gris);font-size:12px;padding:14px;border:1px dashed var(--trait);border-radius:4px}
+
+/* Recherche et rangement des brouillons. Quarante et un articles dans un seul
+   tas rendent la relecture penible ; le rangement vient du serveur, la page ne
+   fait qu'afficher les titres de groupe et filtrer a la saisie. */
+.barre-recherche{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+.barre-recherche input{flex:1;min-width:0;font:inherit;font-size:13px;padding:6px 9px;
+  border:1px solid var(--trait);border-radius:3px;background:var(--papier);color:var(--encre)}
+.compte{font-size:11.5px;color:var(--gris);white-space:nowrap}
+.groupe-thematique{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;
+  color:var(--encre);margin:20px 0 9px;border-bottom:1px solid var(--trait);padding-bottom:4px}
+.groupe-thematique:first-child{margin-top:0}
+.groupe-thematique .n{color:var(--gris);font-weight:400}
 /* --- relecture ------------------------------------------------------------
    Le bloc de validation est visuellement distinct du reste : c'est le seul
    endroit de l'interface ou une action engage une PERSONNE, pas la machine. */
@@ -159,6 +171,11 @@ header{position:relative}
 
   <div>
     <div class="section">brouillons — a relire et valider</div>
+    <div class="barre-recherche">
+      <input id="recherche" type="search" autocomplete="off" spellcheck="false"
+             placeholder="chercher : titre ou thematique">
+      <span id="compte-recherche" class="compte"></span>
+    </div>
     <div id="articles"><div class="vide">Chargement…</div></div>
 
     <div class="section">journal d'audit (§9.4)</div>
@@ -174,6 +191,96 @@ header{position:relative}
 const JETON = document.querySelector("meta[name=jeton-studio]").dataset.jeton;
 const $ = (id) => document.getElementById(id);
 const flux = $("flux");
+
+/**
+ * Fonds des brouillons, tel que le SERVEUR l a range : groupe par thematique,
+ * puis du plus recent au plus ancien a l interieur de chaque groupe. La page ne
+ * retrie rien — elle insere un titre quand la thematique change, et filtre.
+ */
+let ARTICLES = [];
+
+/**
+ * Correspondance de recherche : CHAQUE mot saisi doit se retrouver, dans le
+ * titre ou dans la thematique. Tous les mots, et non un seul — « seisme japon »
+ * doit reduire la liste, pas l elargir.
+ */
+function correspond(a, q) {
+  if (!q) return true;
+  const foin = (a.titre + " " + a.thematique).toLowerCase();
+  return q.split(/\s+/).every((mot) => foin.indexOf(mot) >= 0);
+}
+
+/** La carte d un article. Tout passe par textContent, comme ailleurs. */
+function carteArticle(a) {
+  const c = document.createElement("div");
+  c.className = "carte";
+  const t = document.createElement("div");
+  t.className = "t";
+  t.textContent = a.titre;
+  c.appendChild(t);
+  const m = document.createElement("div");
+  m.className = "meta";
+  for (const cl of a.claims) {
+    const b = document.createElement("span");
+    b.className = "badge n" + cl.niveau;
+    b.textContent = cl.type + " · preuve " + cl.niveau + "/4 · " + cl.sources + " src";
+    m.appendChild(b);
+  }
+  c.appendChild(m);
+  const d = document.createElement("div");
+  d.className = "meta";
+  d.textContent = "produit " + a.publie + (a.revise ? " · revise " + a.revise : "") +
+    " · " + a.incertitudes + " incertitude(s) · " + a.ecartees + " ecartee(s)";
+  c.appendChild(d);
+  c.appendChild(blocRelecture(a));
+  return c;
+}
+
+/**
+ * Rendu de la liste, groupee et filtree.
+ *
+ * LE COMPTE EST TOUJOURS AFFICHE. Une recherche laissee dans le champ ferait
+ * autrement croire que le fonds est vide alors qu il est seulement filtre.
+ */
+function rendreArticles() {
+  const box = $("articles");
+  const champ = $("recherche");
+  const q = (champ && champ.value ? champ.value : "").trim().toLowerCase();
+  const retenus = ARTICLES.filter((a) => correspond(a, q));
+
+  $("compte-recherche").textContent = q
+    ? retenus.length + " sur " + ARTICLES.length
+    : ARTICLES.length + " brouillon(s)";
+
+  box.textContent = "";
+  if (retenus.length === 0) {
+    const v = document.createElement("div");
+    v.className = "vide";
+    v.textContent = q
+      ? "Aucun article ne correspond a cette recherche."
+      : "Aucun article publie.";
+    box.appendChild(v);
+    return;
+  }
+
+  let courante = null;
+  for (const a of retenus) {
+    if (a.thematique !== courante) {
+      courante = a.thematique;
+      const titre = document.createElement("div");
+      titre.className = "groupe-thematique";
+      titre.textContent = courante;
+      const n = document.createElement("span");
+      n.className = "n";
+      n.textContent = " · " + retenus.filter((x) => x.thematique === courante).length;
+      titre.appendChild(n);
+      box.appendChild(titre);
+    }
+    box.appendChild(carteArticle(a));
+  }
+}
+
+$("recherche").addEventListener("input", rendreArticles);
 
 // Tout passe par textContent : le contenu vient du pipeline, donc
 // indirectement de sources externes.
@@ -332,38 +439,8 @@ async function charger() {
     }
   }
 
-  const box = $("articles");
-  box.textContent = "";
-  if (etat.articles.length === 0) {
-    const v = document.createElement("div");
-    v.className = "vide";
-    v.textContent = "Aucun article publie.";
-    box.appendChild(v);
-  }
-  for (const a of etat.articles) {
-    const c = document.createElement("div");
-    c.className = "carte";
-    const t = document.createElement("div");
-    t.className = "t";
-    t.textContent = a.titre;
-    c.appendChild(t);
-    const m = document.createElement("div");
-    m.className = "meta";
-    for (const cl of a.claims) {
-      const b = document.createElement("span");
-      b.className = "badge n" + cl.niveau;
-      b.textContent = cl.type + " · preuve " + cl.niveau + "/4 · " + cl.sources + " src";
-      m.appendChild(b);
-    }
-    c.appendChild(m);
-    const d = document.createElement("div");
-    d.className = "meta";
-    d.textContent = "produit " + a.publie + (a.revise ? " · revise " + a.revise : "") +
-      " · " + a.incertitudes + " incertitude(s) · " + a.ecartees + " ecartee(s)";
-    c.appendChild(d);
-    c.appendChild(blocRelecture(a));
-    box.appendChild(c);
-  }
+  ARTICLES = etat.articles;
+  rendreArticles();
 
   const j = $("audit");
   j.textContent = "";
