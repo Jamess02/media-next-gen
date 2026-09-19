@@ -47,6 +47,51 @@ describe("analyse du flux", () => {
     expect(r.observations[0]?.resume).toMatch(/Decision de politique monetaire/);
   });
 
+  it("ne laisse PAS de balises re-decodees dans le resume", async () => {
+    // MESURE du 2026-09-19 : Business Recorder encode son HTML DEUX fois. Son
+    // flux contient « &lt;p&gt;&lt;strong&gt;LAHORE: … ».
+    //
+    // Le nettoyage retire les balises AVANT de decoder les entites, dans cet
+    // ordre precis. Consequence : « &lt;p&gt; » survit au retrait, puis devient
+    // « <p> » au decodage — et le resume part avec ses balises en clair vers
+    // l'Analyste, puis vers l'article.
+    stub(
+      rss(
+        item({
+          description:
+            "&lt;p&gt;&lt;strong&gt;LAHORE:&lt;/strong&gt; le texte utile.&lt;/p&gt;",
+        }),
+      ),
+    );
+    const r = await rssAdapter(base).fetch(QUERY);
+    const resume = r.observations[0]?.resume ?? "";
+
+    expect(resume).toMatch(/LAHORE/);
+    expect(resume).toMatch(/le texte utile/);
+    // Aucune balise, quel que soit le nombre de couches d'encodage.
+    expect(resume).not.toMatch(/<\/?[a-z][^>]*>/i);
+  });
+
+  it("NORMALISE un lien a double barre oblique", async () => {
+    // MESURE du 2026-09-19 : le flux du blog de la BCE publie ses liens sous la
+    // forme « https://www.ecb.europa.eu//press/blog/... ». L'adresse fonctionne
+    // — les serveurs tolerent la barre doublee — mais elle est citee VERBATIM
+    // dans l'article et dans la fiche de preuve. Une citation dont l'adresse
+    // est mal formee se relit mal et se verifie moins bien.
+    stub(rss(item({ link: "https://exemple.test//press/blog/a.html" })));
+    const r = await rssAdapter(base).fetch(QUERY);
+    expect(r.observations[0]?.url).toBe("https://exemple.test/press/blog/a.html");
+  });
+
+  it("ne touche PAS a une barre doublee dans la partie interrogeable", async () => {
+    // La normalisation porte sur le CHEMIN seulement : une barre doublee dans
+    // les parametres peut etre significative, et la reecrire changerait la
+    // ressource demandee.
+    stub(rss(item({ link: "https://exemple.test/a?cible=https://autre.test/x" })));
+    const r = await rssAdapter(base).fetch(QUERY);
+    expect(r.observations[0]?.url).toBe("https://exemple.test/a?cible=https://autre.test/x");
+  });
+
   it("lit un flux Atom, dont le lien est en attribut", async () => {
     stub(`<?xml version="1.0"?>
       <feed xmlns="http://www.w3.org/2005/Atom">

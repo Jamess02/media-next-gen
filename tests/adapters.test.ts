@@ -16,6 +16,7 @@ import { eurostatAdapter } from "../src/sources/eurostat.js";
 import { fredAdapter } from "../src/sources/fred.js";
 import { imfAdapter } from "../src/sources/imf.js";
 import { usgsAdapter } from "../src/sources/usgs.js";
+import { classifySource } from "../src/sources/registry.js";
 import { lastFetchedUrl, stubFetch } from "./helpers.js";
 
 const QUERY = { topic: "test", since: "2026-01-01T00:00:00Z" };
@@ -388,6 +389,45 @@ describe("catalogue des sources", () => {
     // navigateur, ce que ce projet n'autorise pas.
     expect(motif("smithsonian:volcans")).toMatch(/403/);
     expect(motif("consilium:communiques")).toMatch(/403/);
+  });
+
+  it("branche les sources du 2026-09-19 dont le flux repond reellement", () => {
+    const ids = buildSourceCatalogue({}).adapters.map((a) => a.id);
+    expect(ids).toContain("bce:blog");
+    expect(ids).toContain("brecorder:latest");
+  });
+
+  it("classe la BCE en TIER 1 : sans entree au registre, elle passerait pour de la presse", () => {
+    // Le domaine etait absent du registre. Un billet de la banque centrale
+    // retombait donc au tier 3 par defaut, et EP-001 — la source primaire
+    // passe avant la synthese de presse — ne jouait jamais en sa faveur.
+    expect(classifySource("https://www.ecb.europa.eu/press/blog/html/x.en.html").tier).toBe(1);
+    // Business Recorder est de la presse, et le reste : son tier ne doit pas
+    // etre releve par sympathie pour la qualite du titre.
+    //
+    // On exige `registered`, et pas seulement le tier. Tout domaine INCONNU
+    // retombe en tier 3 par defaut : l'assertion sur le seul tier passait donc
+    // meme apres retrait de l'entree du registre — constate par mutation. Un
+    // domaine non enregistre n'est pas « classe en presse », il est ignore, et
+    // le lecteur voit alors un nom d'hote a la place du nom de l'editeur.
+    const br = classifySource("https://www.brecorder.com/news/1");
+    expect(br.tier).toBe(3);
+    expect(br.registered).toBe(true);
+    expect(br.name).toBe("Business Recorder");
+  });
+
+  it("ECARTE Oracle faute de surface machine, et DATE la mesure", () => {
+    // MESURE du 2026-09-19 : investor.oracle.com refuse notre agent declare
+    // (page, /rss/news-releases.xml, /rss/pressrelease.aspx), oracle.com/news/
+    // et la salle de presse ne declarent aucun flux, et le seul fichier qui
+    // repond est un leurre servi en text/html dont la derniere entree date de
+    // 2008. Le motif doit porter ces trois faits : sans eux, quelqu'un
+    // rebranchera le leurre et fera entrer des depeches vieilles de 18 ans.
+    const { skipped } = buildSourceCatalogue({});
+    const motif = skipped.find((s) => s.id === "oracle:investor-news")?.reason ?? "";
+    expect(motif).toMatch(/403/);
+    expect(motif).toMatch(/2026-09-19/);
+    expect(motif).toMatch(/2008/);
   });
 
   it("couvre PLUSIEURS series par emetteur, pas une seule", () => {

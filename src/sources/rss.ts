@@ -59,6 +59,14 @@ function texte(brut: string | undefined): string {
     .replace(/&gt;/g, ">")
     // L'esperluette en DERNIER : la decoder avant relancerait les autres.
     .replace(/&amp;/g, "&")
+    // SECOND retrait des balises, APRES le decodage des entites.
+    //
+    // MESURE du 2026-09-19 : Business Recorder encode son HTML deux fois — son
+    // flux porte « &lt;p&gt;&lt;strong&gt;LAHORE: … ». Le premier retrait ne
+    // voit rien, les chevrons etant encore des entites ; le decodage les
+    // restaure ensuite, et le resume partait avec « <p><strong> » en clair vers
+    // l'Analyste, donc vers les prompts et jusqu'a l'article.
+    .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -66,11 +74,38 @@ function texte(brut: string | undefined): string {
 const champ = (bloc: string, nom: string): string | undefined =>
   new RegExp(`<${nom}[^>]*>([\\s\\S]*?)</${nom}>`, "i").exec(bloc)?.[1];
 
+/**
+ * Normalise le CHEMIN d'une adresse de flux.
+ *
+ * MESURE du 2026-09-19 : le blog de la BCE publie ses liens sous la forme
+ * « https://www.ecb.europa.eu//press/blog/... ». L'adresse fonctionne — les
+ * serveurs tolerent la barre doublee — mais elle est citee VERBATIM dans
+ * l'article et dans la fiche de preuve, et une citation dont l'adresse est mal
+ * formee se relit mal et se verifie moins bien.
+ *
+ * SEUL LE CHEMIN est touche. Une barre doublee dans les parametres peut etre
+ * significative — « ?cible=https://autre.test/x » — et la reecrire demanderait
+ * une AUTRE ressource que celle publiee.
+ *
+ * Une adresse inanalysable ressort TELLE QUELLE. Ce n'est pas a l'adaptateur de
+ * la refuser : le contrat le fait plus loin, et il sait dire pourquoi.
+ */
+function normaliserUrl(brut: string): string {
+  try {
+    const u = new URL(brut);
+    u.pathname = u.pathname.replace(/\/{2,}/g, "/");
+    return u.toString();
+  } catch {
+    return brut;
+  }
+}
+
 /** Atom place le lien en attribut ; RSS dans le contenu de la balise. */
 function lien(bloc: string): string | undefined {
   const rss = champ(bloc, "link");
-  if (rss !== undefined && rss.trim().length > 0) return texte(rss);
-  return /<link[^>]*href="([^"]+)"/i.exec(bloc)?.[1];
+  if (rss !== undefined && rss.trim().length > 0) return normaliserUrl(texte(rss));
+  const atom = /<link[^>]*href="([^"]+)"/i.exec(bloc)?.[1];
+  return atom === undefined ? undefined : normaliserUrl(atom);
 }
 
 function dateIso(bloc: string): string | null {

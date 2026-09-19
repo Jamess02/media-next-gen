@@ -64,6 +64,13 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "sec.gov", tier: 1, name: "SEC (Securities and Exchange Commission)" },
   { domain: "reliefweb.int", tier: 1, name: "ReliefWeb (ONU)" },
   { domain: "boj.or.jp", tier: 1, name: "Banque du Japon" },
+  // Banque centrale de la zone euro : emettrice de ses decisions, de ses
+  // projections et des billets de ses responsables. ABSENTE du registre
+  // jusqu'au 2026-09-19 — un billet du blog de la BCE retombait donc au tier 3
+  // par defaut, celui de la presse, et EP-001 ne le faisait jamais primer sur
+  // une reprise de presse. Le tier ne dit pas la NATURE du document : c'est au
+  // caveat du catalogue de distinguer un billet signe d'une decision.
+  { domain: "ecb.europa.eu", tier: 1, name: "Banque centrale europeenne" },
   {
     domain: "federalreserve.gov",
     tier: 1,
@@ -101,6 +108,7 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   { domain: "gnews.io", tier: 3, name: "GNews" },
   { domain: "aljazeera.com", tier: 3, name: "Al Jazeera" },
   { domain: "haaretz.com", tier: 3, name: "Haaretz" },
+  { domain: "brecorder.com", tier: 3, name: "Business Recorder" },
   { domain: "reuters.com", tier: 3, name: "Reuters" },
   { domain: "acleddata.com", tier: 3, name: "ACLED" },
   { domain: "sipri.org", tier: 3, name: "SIPRI" },

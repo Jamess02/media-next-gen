@@ -241,6 +241,32 @@ export function buildSourceCatalogue(
       limit: 3,
     }),
 
+    // Banque centrale de la zone euro — le BLOG, demande par l'editeur le
+    // 2026-09-19. Ce n'est PAS le canal des decisions, et le caveat le dit.
+    //
+    // MESURE du 2026-09-19 : https://www.ecb.europa.eu/rss/blog.html rend 15
+    // billets en application/rss+xml, le plus recent du 2026-09-15. La page du
+    // blog elle-meme ne declare AUCUN flux : la BCE sert les siens sous une
+    // extension .html, ce qui les rend introuvables par decouverte automatique
+    // — d'ou l'adresse en dur ici plutot qu'une detection.
+    //
+    // Les descriptions de ce flux sont VIDES : titre, date et lien seulement.
+    // Le resume se construit donc sur le titre, ce que l'adaptateur fait deja.
+    rssAdapter({
+      id: "bce:blog",
+      source: "BCE",
+      url: "https://www.ecb.europa.eu/rss/blog.html",
+      describes:
+        "Billets du blog de la Banque centrale europeenne : lectures signees de l'economie de la zone euro",
+      type: "billet-banque-centrale",
+      limit: 2,
+      caveat:
+        "Billet SIGNE du blog de la BCE : il engage ses auteurs, et n'est ni " +
+        "une decision du Conseil des gouverneurs ni une statistique (§3). Pour " +
+        "un chiffre ou une decision, remonter au communique ou a la serie " +
+        "(EP-001).",
+    }),
+
     // --- Tier 1 : regulateur des marches americains ------------------------
     //
     // MESURE du 2026-09-13 : toutes les surfaces de la SEC repondent HTTP 200
@@ -328,6 +354,27 @@ export function buildSourceCatalogue(
     // Les garde-fous du protocole s'appliquent d'eux-memes : une claim typee
     // `fait` adossee au seul tier 3 est bloquee (FACT_NEEDS_PRIMARY_SOURCE), et
     // un article entierement fonde sur du tier 3 doit le declarer (§4).
+    // Presse economique pakistanaise, demandee par l'editeur le 2026-09-19.
+    // Elle couvre une zone que le catalogue ignorait : budget, energie et
+    // commerce exterieur d'Asie du Sud.
+    //
+    // MESURE du 2026-09-19 : /feeds/latest-news rend 30 entrees en
+    // application/xml, la plus recente du jour meme. La PAGE d'accueil ainsi
+    // que /feed et /rss rendent HTTP 403 a notre agent declare : le site
+    // protege son HTML mais sert son flux, et c'est ce flux que l'on consomme.
+    //
+    // Ses descriptions portent du HTML encode DEUX fois ; `rss.ts` retire les
+    // balises apres decodage depuis cette meme date.
+    rssAdapter({
+      id: "brecorder:latest",
+      source: "Business Recorder",
+      url: "https://www.brecorder.com/feeds/latest-news",
+      describes:
+        "Fil d'actualite economique de Business Recorder (Pakistan) : politique budgetaire, energie, commerce exterieur",
+      type: "presse",
+      limit: 3,
+      caveat: PRESSE_CAVEAT,
+    }),
     rssAdapter({
       id: "aljazeera:all",
       source: "Al Jazeera",
@@ -377,6 +424,36 @@ export function buildSourceCatalogue(
   ];
 
   const skipped: SkippedSource[] = [];
+
+  // Relations investisseurs d'Oracle, demandees par l'editeur le 2026-09-19 et
+  // ECARTEES le jour meme, faute de surface lisible par une machine.
+  //
+  // MESURE du 2026-09-19, a l'agent declare du projet :
+  //  - investor.oracle.com — page d'actualites, /rss/news-releases.xml et
+  //    /rss/pressrelease.aspx : HTTP 403 sur les trois ;
+  //  - oracle.com/news/rss/ : HTTP 404 ;
+  //  - oracle.com/news/ et oracle.com/corporate/press/ : HTTP 200, mais aucun
+  //    flux declare dans la page ;
+  //  - oracle.com/corporate/press/rss/rss-pr.xml : HTTP 200, servi en
+  //    text/html, derniere entree du 25 juillet 2008. Un leurre : le brancher
+  //    ferait entrer des depeches vieilles de dix-huit ans, exactement le
+  //    piege du flux h41 de la Fed.
+  //
+  // Contourner ces 403 supposerait d'usurper un navigateur, ce que ce projet
+  // n'autorise pas — comme pour le Smithsonian et le Conseil de l'UE.
+  //
+  // CE QUI RESTE POSSIBLE : les chiffres d'Oracle passent par ses depots a la
+  // SEC (10-Q, 8-K), deja branchee et qui repond a notre agent. Une source
+  // primaire sur l'entreprise, et non sa propre salle de presse.
+  skipped.push({
+    id: "oracle:investor-news",
+    reason:
+      "Oracle (relations investisseurs) : toutes les surfaces machine rendent " +
+      "HTTP 403 a un agent declare (mesure du 2026-09-19), et le seul flux qui " +
+      "repond est servi en text/html avec une derniere entree datee de 2008. " +
+      "Contourner supposerait d'usurper un navigateur. Les chiffres d'Oracle " +
+      "restent atteignables par ses depots a la SEC, deja branchee.",
+  });
 
   // --- Tier 1, clef requise ----------------------------------------------
   const fredKey = env["FRED_API_KEY"];
