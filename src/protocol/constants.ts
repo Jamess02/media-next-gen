@@ -94,6 +94,11 @@ export const AGENT_ROLES = [
   "redacteur",
   "fact-checker",
   "redacteur-en-chef",
+  // Depouille les relectures humaines (§6) et repartit chaque observation
+  // entre les agents concernes. Il n'ecrit aucun article : sans lui, toutes
+  // les remarques partaient au Redacteur, y compris celles qui visaient la
+  // collecte — et tombaient dans le vide.
+  "secretaire-de-redaction",
   "editeur",
 ] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];

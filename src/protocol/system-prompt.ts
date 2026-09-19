@@ -40,6 +40,9 @@ const ROLE_CLAUSE: Record<AgentRole, string> = {
   // change est le format et la cadence, pas le regime de preuve.
   investigateur: "§5.3",
   "redacteur-en-chef": "§5.4",
+  // Il traite les retours de relecture humaine : §6 pour la correction,
+  // §5.4 pour ce qui se decide a la validation.
+  "secretaire-de-redaction": "§6 et §5.4",
   editeur: "§5.4",
 };
 

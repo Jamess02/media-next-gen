@@ -260,6 +260,134 @@ describe("bout en bout — la consigne atteint le Redacteur", () => {
     expect(vuParLeRedacteur).toMatch(/consequences dans les regions touchees/);
   });
 
+  it("AIGUILLE une consigne de collecte vers le veilleur, PAS vers le redacteur", async () => {
+    // La demande de l'editeur, mot pour mot : « si dans mes notes il y a des
+    // consignes qui ne s'adressent pas au redacteur, que l'agent concerne
+    // puisse les avoir ». « Chercher des informations sur l'Afghanistan » vise
+    // la collecte ; chez le Redacteur, elle ne pouvait rien produire.
+    const publies = join(racine, "articles");
+    await attester(
+      publies,
+      "ancien",
+      "il serait bon de chercher des informations supplementaires notamment sur l'afghanistan",
+      "2026-09-18T10:00:00Z",
+    );
+
+    let vuParLeVeilleur = "";
+    let vuParLeRedacteur = "";
+    const veilleur: MockResponder = (requete) => {
+      vuParLeVeilleur = requete.user;
+      return (ADAPTIVE_RESPONDERS["veilleur"] as MockResponder)(requete);
+    };
+    const redacteur: MockResponder = (requete) => {
+      vuParLeRedacteur = requete.user;
+      return (ADAPTIVE_RESPONDERS["redacteur"] as MockResponder)(requete);
+    };
+
+    const audit = new AuditLog({ dir: join(racine, "audit") });
+    const r = await new EditorialPipeline({
+      ctx: {
+        llm: new MockLlmClient({
+          audit,
+          responders: { ...ADAPTIVE_RESPONDERS, veilleur, redacteur },
+        }),
+        audit,
+      },
+      adapters: [adaptateur],
+      publishedDir: publies,
+      editeur: new Editeur(
+        join(racine, "output"),
+        new EditorialChangelog(join(racine, "changelog-editorial.md")),
+      ),
+    }).run("taux directeur");
+
+    expect(r.status, JSON.stringify(r)).toBe("published");
+    expect(vuParLeVeilleur).toMatch(/afghanistan/i);
+    // Et surtout : elle n'encombre PAS celui qui n'en peut rien faire.
+    expect(vuParLeRedacteur).not.toMatch(/afghanistan/i);
+  });
+
+  it("REJETTE jusqu'au bout une consigne INVENTEE par le secretaire", async () => {
+    // Le filtre etait teste unitairement, mais rien ne verifiait qu'il est
+    // BRANCHE : une mutation contournant `filtrerConsignes` dans le pipeline
+    // passait inapercue. Or c'est le garde-fou central — sans lui, une demande
+    // que l'editeur n'a jamais ecrite arrive au redacteur avec l'autorite
+    // d'une consigne de relecture.
+    const publies = join(racine, "articles");
+    await attester(publies, "ancien", "bon article, rien a signaler", "2026-09-18T10:00:00Z");
+
+    const secretaire: MockResponder = () => ({
+      consignes: [
+        {
+          destinataire: "redacteur",
+          consigne: "raccourcir tous les articles de moitie",
+          // Une origine qui ne figure dans AUCUNE note transmise.
+          origine: "2026-09-18 — jemunzu : raccourcir tous les articles de moitie",
+        },
+      ],
+    });
+
+    let vuParLeRedacteur = "";
+    const redacteur: MockResponder = (requete) => {
+      vuParLeRedacteur = requete.user;
+      return (ADAPTIVE_RESPONDERS["redacteur"] as MockResponder)(requete);
+    };
+
+    const audit = new AuditLog({ dir: join(racine, "audit") });
+    const r = await new EditorialPipeline({
+      ctx: {
+        llm: new MockLlmClient({
+          audit,
+          responders: {
+            ...ADAPTIVE_RESPONDERS,
+            "secretaire-de-redaction": secretaire,
+            redacteur,
+          },
+        }),
+        audit,
+      },
+      adapters: [adaptateur],
+      publishedDir: publies,
+      editeur: new Editeur(
+        join(racine, "output"),
+        new EditorialChangelog(join(racine, "changelog-editorial.md")),
+      ),
+    }).run("taux directeur");
+
+    expect(r.status, JSON.stringify(r)).toBe("published");
+    expect(vuParLeRedacteur).not.toMatch(/raccourcir tous les articles/);
+  });
+
+  it("n'appelle PAS le secretaire quand aucune note n'existe", async () => {
+    // Un appel de modele supplementaire A CHAQUE ARTICLE, pour repartir une
+    // liste vide, serait paye pour rien — six fois par vague.
+    let appels = 0;
+    const secretaire: MockResponder = () => {
+      appels += 1;
+      return { consignes: [] };
+    };
+
+    const audit = new AuditLog({ dir: join(racine, "audit") });
+    const r = await new EditorialPipeline({
+      ctx: {
+        llm: new MockLlmClient({
+          audit,
+          responders: { ...ADAPTIVE_RESPONDERS, "secretaire-de-redaction": secretaire },
+        }),
+        audit,
+      },
+      adapters: [adaptateur],
+      publishedDir: join(racine, "vide"),
+      editeur: new Editeur(
+        join(racine, "output"),
+        new EditorialChangelog(join(racine, "changelog-editorial.md")),
+      ),
+    }).run("taux directeur");
+
+    expect(r.status, JSON.stringify(r)).toBe("published");
+    expect(appels, "le secretaire a ete appele sans aucune note a repartir").toBe(0);
+  });
+
   it("publie NORMALEMENT quand aucune relecture n'a laisse de note", async () => {
     const audit = new AuditLog({ dir: join(racine, "audit") });
     const r = await new EditorialPipeline({

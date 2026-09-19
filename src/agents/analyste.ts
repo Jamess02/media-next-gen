@@ -84,6 +84,14 @@ export interface AnalysteInput {
   freshnessAssessment: string;
   /** `constat` s'en tient a l'etabli ; `prospectif` exige un scenario conditionne. */
   mode: ArticleMode;
+  /**
+   * Consignes de relecture qui visent les AFFIRMATIONS et les chiffres,
+   * reparties par le secretaire de redaction (§6). « Il manque la periode
+   * couverte », « ce niveau de preuve est genereux ».
+   *
+   * Optionnel — la plupart des relectures ne visent pas l'analyse.
+   */
+  consignesDeRelecture?: readonly string[];
 }
 
 export const INSTRUCTIONS_ANALYSTE = `
@@ -260,6 +268,7 @@ export class Analyste extends Agent<AnalysteInput, AnalysteOutput> {
       mode: input.mode,
       fenetre_de_fraicheur: input.freshnessAssessment,
       observations_retenues: input.events,
+      observations_des_relectures: input.consignesDeRelecture ?? [],
     });
   }
 }

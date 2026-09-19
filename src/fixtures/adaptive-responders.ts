@@ -168,6 +168,41 @@ export const ADAPTIVE_RESPONDERS: Record<string, MockResponder> = {
   },
 
   /* --- §5.2 : une claim par observation, plafonnee au niveau 2 ----------- */
+  /**
+   * Secretaire de redaction — repartition simulee des notes de relecture.
+   *
+   * Le vrai agent porte un JUGEMENT editorial ; ce bouchon ne peut pas le
+   * simuler et ne pretend pas le faire. Il applique quelques mots-cles, ce qui
+   * suffit a verifier le CHEMIN : une note qui parle de sources part au
+   * veilleur, une note sur les chiffres a l'analyste, le reste au redacteur.
+   *
+   * L'origine reprend la note ENTIERE : c'est ce que le filtre du pipeline
+   * verifie, et un bouchon qui l'inventerait ferait passer les tests sur un
+   * comportement que le vrai agent n'aurait pas.
+   */
+  "secretaire-de-redaction": (request) => {
+    const { notes_de_relecture: notes } = parse<{ notes_de_relecture: string[] }>(
+      request,
+    );
+
+    return {
+      consignes: notes.map((note) => {
+        const n = note.toLowerCase();
+        const destinataire = /cherch|source|collect|information/.test(n)
+          ? "veilleur"
+          : /chiffre|preuve|periode|unite|niveau/.test(n)
+            ? "analyste"
+            : "redacteur";
+        return {
+          destinataire,
+          // La demande, debarrassee de la date et du nom du relecteur.
+          consigne: note.replace(/^[^:]*:\s*/, ""),
+          origine: note,
+        };
+      }),
+    };
+  },
+
   analyste: (request) => {
     const { sujet, observations_retenues } = parse<AnalystePayload>(request);
     // §3 — plafond de 3 claims structurantes.

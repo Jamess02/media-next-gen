@@ -61,6 +61,7 @@ import {
   type Investigation,
 } from "./planification/investigation.js";
 import { lireConsignes } from "./editorial/consignes.js";
+import { SecretaireDeRedaction, filtrerConsignes } from "./agents/secretaire.js";
 import { calculerEcart } from "./infographie/ecart.js";
 import {
   SuiviIndicateurs,
@@ -158,6 +159,8 @@ export class EditorialPipeline {
   private readonly investigateurPlan: InvestigateurPlan;
   private readonly investigateurChapitre: InvestigateurChapitre;
   private readonly redacteurEnChef: RedacteurEnChef;
+  /** Depouille les relectures humaines et les repartit entre les agents (§6). */
+  private readonly secretaire: SecretaireDeRedaction;
   private readonly editeur: Editeur;
   private readonly since: string;
   private readonly mode: ArticleMode;
@@ -173,6 +176,7 @@ export class EditorialPipeline {
     this.investigateurPlan = new InvestigateurPlan(ctx);
     this.investigateurChapitre = new InvestigateurChapitre(ctx);
     this.redacteurEnChef = new RedacteurEnChef(ctx);
+    this.secretaire = new SecretaireDeRedaction(ctx);
     this.editeur = options.editeur ?? new Editeur();
     this.since =
       options.since ??
@@ -227,7 +231,47 @@ export class EditorialPipeline {
     }
 
     /* --- §5.1 Selection editoriale --------------------------------------- */
-    const selection = await this.veilleur.run({ topic, collection });
+    /* --- §6 : les observations des relecteurs, repartes entre les agents --- */
+    //
+    // CHARGEES AVANT LA SELECTION, et c'est le point entier. Une consigne qui
+    // vise la collecte — « chercher des sources sur l'Afghanistan » — n'a
+    // aucun effet si elle arrive apres que la collecte est faite. Jusqu'au
+    // 2026-09-19, toutes ces notes partaient au Redacteur, qui ne collecte
+    // rien : celles-la tombaient dans le vide.
+    //
+    // Le secretaire n'est appele QUE s'il y a des notes : un appel de modele
+    // supplementaire a chaque article, pour repartir une liste vide, serait
+    // paye pour rien.
+    const notes =
+      this.options.publishedDir === undefined
+        ? []
+        : await lireConsignes(this.options.publishedDir);
+
+    // Le FILTRE est du code : seules survivent les consignes dont l'origine se
+    // retrouve dans une note reellement ecrite. Sans lui, le secretaire
+    // pourrait fabriquer une demande et la presenter comme celle de l'editeur.
+    const reparties =
+      notes.length === 0
+        ? []
+        : filtrerConsignes(notes, await this.secretaire.run({ notes }));
+
+    const consignesPour = (destinataire: string): string[] =>
+      reparties
+        .filter((c) => c.destinataire === destinataire)
+        .map((c) => c.consigne);
+
+    if (reparties.length > 0) {
+      this.onStage(
+        "selection",
+        `${reparties.length} consigne(s) de relecture repartie(s) par le secretaire`,
+      );
+    }
+
+    const selection = await this.veilleur.run({
+      topic,
+      collection,
+      consignesDeRelecture: consignesPour("veilleur"),
+    });
     const retained = applySelection(collection.events, selection);
     this.onStage(
       "selection",
@@ -246,6 +290,7 @@ export class EditorialPipeline {
       events: retained,
       freshnessAssessment: selection.freshness_assessment,
       mode: this.mode,
+      consignesDeRelecture: consignesPour("analyste"),
     });
     this.onStage("analyse", `${analysis.candidates.length} claim(s) candidate(s)`);
 
@@ -568,22 +613,10 @@ export class EditorialPipeline {
     // drapeaux d'incertitude, assemblage du contrat §7, gate, publication.
     // Faire diverger ces etapes selon le format aurait cree deux chemins de
     // publication a maintenir, dont un seul serait reellement exerce.
-    // §6 — ce que les relecteurs ont demande sur les articles precedents.
-    //
-    // Ces notes existaient depuis le debut : ecrites dans l'attestation,
-    // publiees au changelog, affichees sur le site. Rien ne les relisait. Une
-    // remarque demandant de traiter « les consequences et les reponses des
-    // gouvernements » est ainsi restee sans effet pendant six jours.
-    //
-    // Elles orientent l'ECRITURE et rien d'autre : le gate s'applique apres,
-    // a l'identique.
-    const consignes =
-      this.options.publishedDir === undefined
-        ? []
-        : await lireConsignes(this.options.publishedDir);
-
     const draft = enqueteRedigee ?? (await this.redacteur.run({
-      consignesDeRelecture: consignes,
+      // Uniquement ce que le secretaire a adresse au Redacteur : une consigne
+      // de collecte ne lui sert a rien, et occuperait la place d'une vraie.
+      consignesDeRelecture: consignesPour("redacteur"),
       topic,
       claims: gate.accepted,
       narrativeVsData: analysis.narrative_vs_data,

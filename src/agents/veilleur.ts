@@ -46,6 +46,16 @@ export type VeilleurOutput = z.infer<typeof VeilleurOutputSchema>;
 export interface VeilleurInput {
   topic: string;
   collection: CollectionResult;
+  /**
+   * Consignes de relecture qui visent la COLLECTE, reparties par le secretaire
+   * de redaction (§6). « Chercher des sources sur telle zone », « remonter a
+   * l'emetteur plutot qu'a la presse ».
+   *
+   * Elles partaient auparavant au Redacteur, qui ne collecte rien : elles
+   * tombaient dans le vide. Optionnel — la plupart des relectures ne visent pas
+   * la collecte.
+   */
+  consignesDeRelecture?: readonly string[];
 }
 
 const INSTRUCTIONS = `
@@ -112,6 +122,7 @@ export class Veilleur extends Agent<VeilleurInput, VeilleurOutput> {
           input.collection.unregisteredUrls,
         sources_muettes: input.collection.failures,
       },
+      observations_des_relectures: input.consignesDeRelecture ?? [],
     });
   }
 }
