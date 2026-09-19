@@ -314,6 +314,7 @@ async function publish(command: PublishCommand): Promise<void> {
     // defaut dans le pipeline : sans cela, la suite de tests ecrirait dans
     // data/tracking/ a chaque execution.
     suivi: new SuiviIndicateurs(),
+    publishedDir: join(process.cwd(), "articles"),
     // Historique reel, relu depuis les brouillons deja produits. Tenir un
     // fichier d etat separe le ferait diverger du contenu du dossier ; les
     // articles eux-memes portent leur mode et leur date, ce qui suffit.
@@ -674,6 +675,7 @@ async function vagueCommand(command: VagueCommand): Promise<void> {
           adapters: catalogue.adapters,
           mode: sujet.mode,
           suivi: new SuiviIndicateurs(),
+          publishedDir: join(process.cwd(), "articles"),
         }).run(sujet.sujet),
       onProgres: (fait, total, sujet) =>
         console.log(`  [${fait}/${total}] ${sujet.mode.padEnd(10)} ${sujet.sujet}`),

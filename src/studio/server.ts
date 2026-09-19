@@ -255,6 +255,8 @@ async function executer(
   req: IncomingMessage,
   res: ServerResponse,
   params: URLSearchParams,
+  /** D'ou viennent les observations des relecteurs (§6). */
+  publishedDir: string,
 ): Promise<void> {
   res.writeHead(200, {
     ...SECURITE,
@@ -311,6 +313,8 @@ async function executer(
       // Meme registre que le CLI : un article produit depuis le studio compte
       // autant dans la comparaison entre editions.
       suivi: new SuiviIndicateurs(),
+      // Les remarques laissees en validant orientent l'article suivant.
+      publishedDir,
       onStage: (etape, detail) => envoyer("etape", { etape, detail }),
     });
 
@@ -473,6 +477,8 @@ export interface StudioInstance {
 async function executerVagueSse(
   res: ServerResponse,
   params: URLSearchParams,
+  /** D'ou viennent les observations des relecteurs (§6). */
+  publishedDir: string,
 ): Promise<void> {
   res.writeHead(200, {
     ...SECURITE,
@@ -512,6 +518,7 @@ async function executerVagueSse(
           adapters: catalogue.adapters,
           mode: sujet.mode,
           suivi: new SuiviIndicateurs(),
+          publishedDir,
         }).run(sujet.sujet),
       onProgres: (fait, total, sujet) =>
         envoyer("vague-progres", {
@@ -737,10 +744,10 @@ export async function startStudio(
             });
             return;
           case "/api/publier":
-            await executer(req, res, url.searchParams);
+            await executer(req, res, url.searchParams, publishedDir);
             return;
           case "/api/vague":
-            await executerVagueSse(res, url.searchParams);
+            await executerVagueSse(res, url.searchParams, publishedDir);
             return;
           case "/api/site": {
             const r = await buildSite();

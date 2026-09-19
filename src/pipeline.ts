@@ -60,6 +60,7 @@ import {
   evaluerSujet,
   type Investigation,
 } from "./planification/investigation.js";
+import { lireConsignes } from "./editorial/consignes.js";
 import { calculerEcart } from "./infographie/ecart.js";
 import {
   SuiviIndicateurs,
@@ -121,6 +122,14 @@ export interface PipelineOptions {
    * qu'on n'y reecrit jamais. Le CLI le passe explicitement.
    */
   suivi?: SuiviIndicateurs;
+  /**
+   * Repertoire des articles VALIDES, d'ou proviennent les observations des
+   * relecteurs (§6). Injecte, pour la meme raison que le registre : sans lui,
+   * un test lirait les attestations reelles de l'editeur.
+   *
+   * Absent : aucune consigne n'est transmise, et l'article s'ecrit comme avant.
+   */
+  publishedDir?: string;
   /** Borne basse de fraicheur (§5.1). Defaut : 30 jours glissants. */
   since?: string;
   /**
@@ -559,7 +568,22 @@ export class EditorialPipeline {
     // drapeaux d'incertitude, assemblage du contrat §7, gate, publication.
     // Faire diverger ces etapes selon le format aurait cree deux chemins de
     // publication a maintenir, dont un seul serait reellement exerce.
+    // §6 — ce que les relecteurs ont demande sur les articles precedents.
+    //
+    // Ces notes existaient depuis le debut : ecrites dans l'attestation,
+    // publiees au changelog, affichees sur le site. Rien ne les relisait. Une
+    // remarque demandant de traiter « les consequences et les reponses des
+    // gouvernements » est ainsi restee sans effet pendant six jours.
+    //
+    // Elles orientent l'ECRITURE et rien d'autre : le gate s'applique apres,
+    // a l'identique.
+    const consignes =
+      this.options.publishedDir === undefined
+        ? []
+        : await lireConsignes(this.options.publishedDir);
+
     const draft = enqueteRedigee ?? (await this.redacteur.run({
+      consignesDeRelecture: consignes,
       topic,
       claims: gate.accepted,
       narrativeVsData: analysis.narrative_vs_data,
