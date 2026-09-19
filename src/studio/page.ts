@@ -88,29 +88,32 @@ button[disabled]{opacity:.45;cursor:not-allowed}
 .sous-section{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
   color:var(--gris-clair);margin:22px 0 8px}
 
-/* Une categorie est un BOUTON : on clique pour l'ouvrir. Le chevron suit
-   aria-expanded, de sorte que l'etat affiche et l'etat annonce aux outils
-   d'accessibilite ne puissent pas diverger. */
-.groupe-thematique{display:block;width:100%;text-align:left;font:inherit;
-  font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--encre);
-  background:var(--doux);border:1px solid var(--trait);border-radius:4px;
-  padding:8px 11px;margin:0 0 7px;cursor:pointer}
+/* Une categorie est un LIEN vers sa propre page, pas un pliage. Le bouton
+   retour du navigateur doit marcher, et la page d'une thematique doit pouvoir
+   s'ouvrir dans un onglet ou se passer entre deux relecteurs. */
+.groupe-thematique{display:block;font-size:12px;letter-spacing:.04em;
+  color:var(--encre);text-decoration:none;background:var(--doux);
+  border:1px solid var(--trait);border-radius:4px;padding:9px 11px;margin:0 0 7px}
 .groupe-thematique:hover{border-color:var(--gris-clair)}
-.groupe-thematique::before{content:"▸  "}
-.groupe-thematique[aria-expanded="true"]::before{content:"▾  "}
+.groupe-thematique::after{content:" →";color:var(--gris-clair)}
 .groupe-thematique .n{color:var(--gris)}
-.groupe{margin:0 0 16px;padding-left:11px;border-left:2px solid var(--trait)}
-.groupe.replie{display:none}
 
-/* Les recents sont COMPACTS. Une carte pleine par article poussait la premiere
-   categorie a plus de mille pixels sous la ligne de flottaison, et donnait au
-   meme brouillon deux formulaires de validation. */
-.recent{display:block;width:100%;text-align:left;font:inherit;font-size:12px;
-  color:var(--gris);background:none;border:0;border-bottom:1px solid var(--trait);
-  padding:7px 2px;cursor:pointer}
+/* Fil de la vue ouverte : le retour d'abord, parce qu'une page sans issue est
+   une impasse. */
+#titre-vue{margin:18px 0 10px}
+.retour{display:inline-block;font-size:11.5px;color:var(--accent);
+  text-decoration:none;margin-right:12px}
+.retour:hover{text-decoration:underline}
+.nom-vue{font-size:12px;letter-spacing:.04em;color:var(--encre)}
+
+/* Les recents sont COMPACTS : une carte pleine par article repoussait les
+   categories hors de l'ecran, et donnait au meme brouillon deux formulaires de
+   validation dont l'un se serait taire apres l'autre. */
+.recent{display:block;font-size:12px;color:var(--gris);text-decoration:none;
+  border-bottom:1px solid var(--trait);padding:7px 2px}
 .recent:hover{color:var(--encre)}
-.recent .d{font-family:var(--mono);font-size:11px;color:var(--gris-clair);margin-right:8px}
-.recent .th{font-family:var(--mono);font-size:11px;color:var(--gris-clair);margin-right:8px}
+.recent .d{font-size:11px;color:var(--gris-clair);margin-right:8px}
+.recent .th{font-size:11px;color:var(--gris-clair);margin-right:8px}
 /* --- relecture ------------------------------------------------------------
    Le bloc de validation est visuellement distinct du reste : c'est le seul
    endroit de l'interface ou une action engage une PERSONNE, pas la machine. */
@@ -198,10 +201,8 @@ header{position:relative}
              placeholder="chercher : titre ou thematique">
       <span id="compte-recherche" class="compte"></span>
     </div>
-    <div class="sous-section">par thematique</div>
+    <div id="titre-vue"></div>
     <div id="articles"><div class="vide">Chargement…</div></div>
-
-    <div class="sous-section">les plus recents</div>
     <div id="derniers-brouillons"></div>
 
     <div class="section">journal d'audit (§9.4)</div>
@@ -269,16 +270,29 @@ function parDateDecroissante(liste) {
 }
 
 /**
- * Rendu de la liste : les plus recents en tete, puis les categories repliables.
+ * La thematique demandee par l ADRESSE, s il y en a une.
  *
- * DEUX EXIGENCES DE L EDITEUR, et elles tirent en sens inverse. Les categories
- * doivent etre CLIQUABLES, donc repliees — sinon il n y a rien a ouvrir. Mais
- * les articles les plus recents doivent RESTER VISIBLES, et tout replier les
- * cacherait. D ou les deux zones : un bandeau des derniers brouillons, toutes
- * categories confondues, puis les categories elles-memes.
+ * Le choix d une categorie est une NAVIGATION, pas un pliage : chaque
+ * thematique a son adresse, donc le bouton retour du navigateur fonctionne, et
+ * la page s ouvre dans un onglet ou se partage entre deux relecteurs.
+ */
+function thematiqueDeLAdresse() {
+  const m = /[?&]thematique=([^&]*)/.exec(location.search || "");
+  // Decoupage plutot qu'expression reguliere : un antislash ecrit dans ce
+  // fichier traverse un litteral de gabarit, ou il se perd sans bruit — la
+  // regex arrivait au navigateur sous la forme invalide « /+/g ».
+  return m ? decodeURIComponent(m[1].split("+").join(" ")) : null;
+}
+
+/**
+ * Rendu, en DEUX vues.
  *
- * UNE RECHERCHE OUVRE LES CATEGORIES. Cacher des resultats qu on vient de
- * trouver serait absurde.
+ * Accueil : la liste des categories, et le bandeau des plus recents. Aucun
+ * article n y figure — ils vivent sur la page de leur categorie.
+ *
+ * Page d une categorie : ses articles seuls, du plus recent au plus ancien,
+ * avec un retour. Pas de bandeau des recents : on est deja dans une categorie,
+ * et le repeter ferait sortir de la ou l on vient d entrer.
  *
  * LE COMPTE EST TOUJOURS AFFICHE : une recherche laissee dans le champ ferait
  * autrement croire que le fonds est vide alors qu il est seulement filtre.
@@ -286,7 +300,11 @@ function parDateDecroissante(liste) {
 function rendreArticles() {
   const champ = $("recherche");
   const q = (champ && champ.value ? champ.value : "").trim().toLowerCase();
-  const retenus = ARTICLES.filter((a) => correspond(a, q));
+  const active = thematiqueDeLAdresse();
+
+  const retenus = ARTICLES.filter(
+    (a) => correspond(a, q) && (active === null || a.thematique === active),
+  );
 
   $("compte-recherche").textContent = q
     ? retenus.length + " sur " + ARTICLES.length
@@ -294,9 +312,39 @@ function rendreArticles() {
 
   const box = $("articles");
   const recents = $("derniers-brouillons");
+  const titre = $("titre-vue");
   box.textContent = "";
   recents.textContent = "";
+  titre.textContent = "";
 
+  /* --- Page d une categorie ------------------------------------------- */
+  if (active !== null) {
+    const retour = document.createElement("a");
+    retour.className = "retour";
+    retour.href = "?";
+    retour.textContent = "← toutes les thematiques";
+    titre.appendChild(retour);
+
+    const nom = document.createElement("span");
+    nom.className = "nom-vue";
+    nom.textContent = active + " · " + retenus.length + " brouillon(s)";
+    titre.appendChild(nom);
+
+    if (retenus.length === 0) {
+      const v = document.createElement("div");
+      v.className = "vide";
+      v.textContent = q
+        ? "Aucun article de cette thematique ne correspond a la recherche."
+        : "Aucun article dans cette thematique.";
+      box.appendChild(v);
+      return;
+    }
+
+    for (const a of parDateDecroissante(retenus)) box.appendChild(carteArticle(a));
+    return;
+  }
+
+  /* --- Accueil : les categories ---------------------------------------- */
   if (retenus.length === 0) {
     const v = document.createElement("div");
     v.className = "vide";
@@ -306,6 +354,11 @@ function rendreArticles() {
     box.appendChild(v);
     return;
   }
+
+  const intitule = document.createElement("div");
+  intitule.className = "sous-section";
+  intitule.textContent = "par thematique";
+  titre.appendChild(intitule);
 
   // Le serveur a deja range : on suit son ordre de categories sans le recalculer.
   const ordre = [];
@@ -318,53 +371,30 @@ function rendreArticles() {
     parThematique[a.thematique].push(a);
   }
 
-  // De quoi ouvrir une categorie depuis ailleurs : un recent sur lequel on
-  // clique doit derouler la sienne, sinon le raccourci ne mene nulle part.
-  const ouvrir = {};
-
   for (const thematique of ordre) {
-    const articles = parDateDecroissante(parThematique[thematique]);
+    const lien = document.createElement("a");
+    lien.className = "groupe-thematique";
+    lien.href = "?thematique=" + encodeURIComponent(thematique);
+    lien.textContent = thematique;
 
-    const entete = document.createElement("button");
-    entete.className = "groupe-thematique";
-    entete.setAttribute("type", "button");
-    entete.textContent = thematique;
     const compte = document.createElement("span");
     compte.className = "n";
-    compte.textContent = " · " + articles.length;
-    entete.appendChild(compte);
+    compte.textContent = " · " + parThematique[thematique].length;
+    lien.appendChild(compte);
 
-    const contenu = document.createElement("div");
-    for (const a of articles) contenu.appendChild(carteArticle(a));
-
-    let ouvert = q.length > 0;
-    const appliquer = () => {
-      contenu.className = ouvert ? "groupe" : "groupe replie";
-      entete.setAttribute("aria-expanded", ouvert ? "true" : "false");
-    };
-    appliquer();
-    entete.addEventListener("click", () => {
-      ouvert = !ouvert;
-      appliquer();
-    });
-    ouvrir[thematique] = () => {
-      ouvert = true;
-      appliquer();
-    };
-
-    box.appendChild(entete);
-    box.appendChild(contenu);
+    box.appendChild(lien);
   }
 
-  // --- Les plus recents, en RACCOURCI ------------------------------------
-  //
-  // Compacts, et sans formulaire de validation : une carte pleine par recent
-  // repoussait la premiere categorie hors de l'ecran, et donnait au meme
-  // brouillon deux formulaires dont l'un se serait tu apres l'autre.
+  /* --- Les plus recents, en raccourci ---------------------------------- */
+  const intituleRecents = document.createElement("div");
+  intituleRecents.className = "sous-section";
+  intituleRecents.textContent = "les plus recents";
+  recents.appendChild(intituleRecents);
+
   for (const a of parDateDecroissante(retenus).slice(0, 6)) {
-    const ligne = document.createElement("button");
+    const ligne = document.createElement("a");
     ligne.className = "recent";
-    ligne.setAttribute("type", "button");
+    ligne.href = "?thematique=" + encodeURIComponent(a.thematique);
 
     const date = document.createElement("span");
     date.className = "d";
@@ -372,18 +402,12 @@ function rendreArticles() {
     const th = document.createElement("span");
     th.className = "th";
     th.textContent = a.thematique;
-    const titre = document.createElement("span");
-    titre.textContent = a.titre;
+    const t = document.createElement("span");
+    t.textContent = a.titre;
 
     ligne.appendChild(date);
     ligne.appendChild(th);
-    ligne.appendChild(titre);
-
-    ligne.addEventListener("click", () => {
-      const f = ouvrir[a.thematique];
-      if (f) f();
-    });
-
+    ligne.appendChild(t);
     recents.appendChild(ligne);
   }
 }

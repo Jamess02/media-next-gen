@@ -3,19 +3,17 @@
  *
  * Ecrits AVANT le code (TDD).
  *
- * POURQUOI CE FICHIER EXISTE. Les tests du studio verifiaient jusqu'ici que des
- * CHAINES figurent dans la page — `id="recherche"`, `groupe-thematique`. Tous
- * verts, et pourtant l'editeur n'a pas vu ses categories s'afficher. Une
- * assertion sur la presence d'un mot dans un fichier ne dit rien de ce que le
- * navigateur produit : le code pouvait etre la sans jamais rien dessiner.
+ * POURQUOI CE FICHIER EXISTE. Les tests du studio verifiaient qu'une CHAINE
+ * figure dans la page — « groupe-thematique », « id=recherche ». Tous verts, et
+ * pourtant l'editeur n'a pas vu ses categories. Une assertion sur la presence
+ * d'un mot ne dit rien de ce que le navigateur produit.
  *
  * Ici, le bloc de rendu est EXTRAIT de la page et EXECUTE contre un DOM
  * minimal. On regarde l'arbre obtenu, pas le texte du programme.
  *
- * CE QUE CE DOM SIMULE : createElement, appendChild, textContent (qui vide les
- * enfants, comme le vrai), setAttribute, addEventListener, et getElementById.
- * C'est tout ce que la page utilise. Un faux DOM plus riche donnerait
- * l'illusion de tester un navigateur, ce qu'il ne fait pas.
+ * DEUX VUES, depuis la demande du 2026-09-19 : l'accueil liste les CATEGORIES,
+ * et chaque categorie a sa propre page — une vraie adresse, donc un bouton
+ * retour qui marche et un lien que l'on peut ouvrir dans un onglet.
  */
 
 import { describe, expect, it } from "vitest";
@@ -38,10 +36,11 @@ interface Noeud {
   setAttribute(nom: string, valeur: string): void;
   addEventListener(type: string, fn: () => void): void;
   value?: string;
+  href?: string;
 }
 
 function creerNoeud(tagName: string): Noeud {
-  const n: Noeud = {
+  return {
     tagName,
     className: "",
     attributs: {},
@@ -67,10 +66,8 @@ function creerNoeud(tagName: string): Noeud {
       this.handlers[type] = fn;
     },
   };
-  return n;
 }
 
-/** Tous les descendants portant une classe donnee. */
 function parClasse(racine: Noeud, classe: string): Noeud[] {
   const trouves: Noeud[] = [];
   const visiter = (n: Noeud): void => {
@@ -84,7 +81,6 @@ function parClasse(racine: Noeud, classe: string): Noeud[] {
 const MARQUE_DEBUT = "/* --- rendu des brouillons --- */";
 const MARQUE_FIN = "/* --- fin rendu des brouillons --- */";
 
-/** Extrait le bloc de rendu de la page, tel qu'il part au navigateur. */
 function blocDeRendu(): string {
   const debut = STUDIO_PAGE.indexOf(MARQUE_DEBUT);
   const fin = STUDIO_PAGE.indexOf(MARQUE_FIN);
@@ -101,22 +97,26 @@ interface Rendu {
   boite: Noeud;
   recents: Noeud;
   compte: Noeud;
-  rendre: () => void;
-  champ: Noeud;
+  titre: Noeud;
 }
 
-/** Execute le bloc de rendu sur un jeu d'articles, et rend l'arbre produit. */
-function rendre(articles: unknown[], recherche = ""): Rendu {
+/** Execute le rendu. `thematique` simule l'adresse d'une page de categorie. */
+function rendre(
+  articles: unknown[],
+  options: { recherche?: string; thematique?: string } = {},
+): Rendu {
   const boite = creerNoeud("div");
   const recents = creerNoeud("div");
   const compte = creerNoeud("span");
+  const titre = creerNoeud("div");
   const champ = creerNoeud("input");
-  champ.value = recherche;
+  champ.value = options.recherche ?? "";
 
   const elements: Record<string, Noeud> = {
     articles: boite,
     "derniers-brouillons": recents,
     "compte-recherche": compte,
+    "titre-vue": titre,
     recherche: champ,
   };
 
@@ -125,14 +125,21 @@ function rendre(articles: unknown[], recherche = ""): Rendu {
     getElementById: (id: string) => elements[id] ?? null,
   };
   const $ = (id: string): Noeud | null => elements[id] ?? null;
+  const location = {
+    search:
+      options.thematique === undefined
+        ? ""
+        : `?thematique=${encodeURIComponent(options.thematique)}`,
+  };
 
-  // `blocRelecture` et `carteArticle` appartiennent au reste de la page : on
-  // fournit une doublure, ce test portant sur le GROUPEMENT, pas sur la carte.
+  // Doublure : ce test porte sur le GROUPEMENT et la navigation, pas sur la
+  // carte de relecture, qui a ses propres controles.
   const blocRelecture = (): Noeud => creerNoeud("div");
 
   const fabrique = new Function(
     "document",
     "$",
+    "location",
     "blocRelecture",
     "ARTICLES_INIT",
     `${blocDeRendu()}
@@ -141,14 +148,13 @@ function rendre(articles: unknown[], recherche = ""): Rendu {
   ) as (
     d: unknown,
     s: unknown,
+    l: unknown,
     b: unknown,
     a: unknown,
   ) => { rendreArticles: () => void };
 
-  const { rendreArticles } = fabrique(document, $, blocRelecture, articles);
-  rendreArticles();
-
-  return { boite, recents, compte, rendre: rendreArticles, champ };
+  fabrique(document, $, location, blocRelecture, articles).rendreArticles();
+  return { boite, recents, compte, titre };
 }
 
 const article = (titre: string, thematique: string, publie: string) => ({
@@ -173,135 +179,128 @@ const JEU = [
 ];
 
 /* -------------------------------------------------------------------------
- * Ce que le rendu produit REELLEMENT
+ * 1. L'accueil : les categories
  * ---------------------------------------------------------------------- */
 
-describe("rendu — les categories existent dans l'arbre", () => {
-  it("dessine UNE entete par thematique", () => {
-    // L'assertion qui manquait : les tests precedents verifiaient que le mot
-    // « groupe-thematique » figure dans le fichier, pas qu'une entete soit
-    // produite.
+describe("accueil — la liste des categories", () => {
+  it("dessine UNE entree par thematique, avec son compte", () => {
     const { boite } = rendre(JEU);
-    const entetes = parClasse(boite, "groupe-thematique");
-    expect(entetes).toHaveLength(2);
-    expect(entetes[0]?.textContent).toMatch(/banques centrales/);
-    expect(entetes[1]?.textContent).toMatch(/macroeconomie/);
+    const entrees = parClasse(boite, "groupe-thematique");
+    expect(entrees).toHaveLength(2);
+    expect(entrees[0]?.textContent).toMatch(/banques centrales/);
+    expect(entrees[0]?.textContent).toMatch(/2/);
+    expect(entrees[1]?.textContent).toMatch(/3/);
   });
 
-  it("annonce le NOMBRE d'articles de chaque categorie", () => {
-    const { boite } = rendre(JEU);
-    const entetes = parClasse(boite, "groupe-thematique");
-    expect(entetes[0]?.textContent).toMatch(/2/);
-    expect(entetes[1]?.textContent).toMatch(/3/);
-  });
-
-  it("rend les entetes CLIQUABLES", () => {
-    // Demande de l'editeur : on clique sur une categorie et ses articles
-    // apparaissent dedans.
+  it("chaque categorie est un LIEN vers sa propre page", () => {
+    // Un lien, et non un bouton : le bouton retour du navigateur doit marcher,
+    // et la page d'une categorie doit pouvoir s'ouvrir dans un onglet.
     const { boite } = rendre(JEU);
     for (const e of parClasse(boite, "groupe-thematique")) {
-      expect(typeof e.handlers["click"], `${e.textContent} n'est pas cliquable`).toBe(
-        "function",
-      );
+      expect(e.tagName, "une categorie doit etre un lien").toBe("a");
+      expect(e.href ?? "", e.textContent).toMatch(/[?&]thematique=/);
     }
   });
 
-  it("place les articles DANS leur categorie", () => {
+  it("encode la thematique dans l'adresse", () => {
     const { boite } = rendre(JEU);
-    const groupes = parClasse(boite, "groupe");
-    expect(groupes).toHaveLength(2);
-    expect(parClasse(groupes[0] as Noeud, "carte")).toHaveLength(2);
-    expect(parClasse(groupes[1] as Noeud, "carte")).toHaveLength(3);
+    const lien = parClasse(boite, "groupe-thematique")[0];
+    expect(lien?.href).toContain(encodeURIComponent("banques centrales"));
   });
 
-  it("trie chaque categorie du PLUS RECENT au plus ancien", () => {
+  it("n'affiche AUCUN article : ils vivent sur la page de leur categorie", () => {
     const { boite } = rendre(JEU);
-    const groupes = parClasse(boite, "groupe");
-    const titres = parClasse(groupes[1] as Noeud, "t").map((n) => n.textContent);
-    expect(titres).toEqual(["Macro recent", "Macro moyen", "Macro ancien"]);
+    expect(parClasse(boite, "carte")).toHaveLength(0);
   });
-});
 
-describe("rendu — les plus recents restent visibles", () => {
-  it("expose les derniers brouillons, toutes categories confondues", () => {
-    // « Bien evidemment les articles les plus recents doivent etre visibles
-    // sur la page » : replier toutes les categories les cacherait.
+  it("montre les plus recents, compacts et sans formulaire", () => {
     const { recents } = rendre(JEU);
     const lignes = parClasse(recents, "recent");
-    expect(lignes.length).toBeGreaterThan(0);
     expect(lignes[0]?.textContent).toMatch(/BC recent/);
     expect(lignes[1]?.textContent).toMatch(/Macro recent/);
-  });
-
-  it("les rend COMPACTS : ni carte, ni second formulaire de validation", () => {
-    // Une carte pleine par recent poussait la premiere categorie a plus de
-    // mille pixels sous la ligne de flottaison — l'editeur ne les voyait pas.
-    // Et le meme article portait DEUX formulaires de relecture, dont l'un ne
-    // se serait pas mis a jour apres l'autre.
-    const { recents } = rendre(JEU);
     expect(parClasse(recents, "carte")).toHaveLength(0);
     expect(parClasse(recents, "relire")).toHaveLength(0);
   });
 
-  it("montre la date et la thematique de chaque recent", () => {
-    const { recents } = rendre(JEU);
-    const premier = parClasse(recents, "recent")[0]?.textContent ?? "";
-    expect(premier).toMatch(/2026-09-19/);
-    expect(premier).toMatch(/banques centrales/);
-  });
-
-  it("OUVRE la categorie quand on clique un recent", () => {
-    const { recents, boite } = rendre(JEU);
-    const macro = parClasse(boite, "groupe")[1] as Noeud;
-    expect(macro.className, "les categories doivent partir repliees").toMatch(/replie/);
-
-    const ligne = parClasse(recents, "recent").find((n) =>
-      n.textContent.includes("Macro recent"),
-    );
-    expect(ligne?.handlers["click"], "un recent n'est pas cliquable").toBeTypeOf(
-      "function",
-    );
-    ligne?.handlers["click"]?.();
-
-    expect(macro.className, "la categorie est restee fermee").not.toMatch(/replie/);
-  });
-
-  it("ne repete pas indefiniment : les recents sont bornes", () => {
+  it("borne les recents", () => {
     const beaucoup = Array.from({ length: 20 }, (_, i) =>
       article(`A${i}`, "macroeconomie", `2026-09-${String(28 - i).padStart(2, "0")}T08:00:00Z`),
     );
-    const { recents } = rendre(beaucoup);
-    expect(parClasse(recents, "recent").length).toBeLessThanOrEqual(6);
+    expect(parClasse(rendre(beaucoup).recents, "recent").length).toBeLessThanOrEqual(6);
   });
 });
 
-describe("disposition — les categories d'abord", () => {
-  it("place les categories AVANT les recents dans la page", () => {
-    // L'ordre inverse les rendait invisibles : six cartes pleines les
-    // repoussaient hors de l'ecran.
-    const categories = STUDIO_PAGE.indexOf('id="articles"');
-    const recents = STUDIO_PAGE.indexOf('id="derniers-brouillons"');
-    expect(categories).toBeGreaterThan(-1);
-    expect(recents).toBeGreaterThan(-1);
-    expect(categories).toBeLessThan(recents);
+/* -------------------------------------------------------------------------
+ * 2. La page d'une categorie
+ * ---------------------------------------------------------------------- */
+
+describe("page d'une categorie", () => {
+  it("n'affiche QUE les articles de cette categorie", () => {
+    const { boite } = rendre(JEU, { thematique: "macroeconomie" });
+    const titres = parClasse(boite, "t").map((n) => n.textContent);
+    expect(titres).toHaveLength(3);
+    expect(titres.every((t) => t.startsWith("Macro"))).toBe(true);
+  });
+
+  it("les trie du PLUS RECENT au plus ancien", () => {
+    const { boite } = rendre(JEU, { thematique: "macroeconomie" });
+    expect(parClasse(boite, "t").map((n) => n.textContent)).toEqual([
+      "Macro recent",
+      "Macro moyen",
+      "Macro ancien",
+    ]);
+  });
+
+  it("annonce la categorie ouverte", () => {
+    const { titre } = rendre(JEU, { thematique: "macroeconomie" });
+    expect(titre.textContent).toMatch(/macroeconomie/);
+  });
+
+  it("porte un lien de RETOUR vers toutes les thematiques", () => {
+    const { titre } = rendre(JEU, { thematique: "macroeconomie" });
+    const retours = parClasse(titre, "retour");
+    expect(retours, "aucun retour : la page serait sans issue").toHaveLength(1);
+    expect(retours[0]?.tagName).toBe("a");
+  });
+
+  it("ne montre PAS le bandeau des recents : on est deja dans une categorie", () => {
+    const { recents } = rendre(JEU, { thematique: "macroeconomie" });
+    expect(parClasse(recents, "recent")).toHaveLength(0);
+  });
+
+  it("le DIT quand la categorie est vide ou inconnue", () => {
+    // Une page blanche laisserait croire a une panne.
+    const { boite } = rendre(JEU, { thematique: "inexistante" });
+    expect(parClasse(boite, "carte")).toHaveLength(0);
+    expect(boite.textContent).toMatch(/aucun/i);
   });
 });
 
-describe("rendu — la recherche", () => {
-  it("ne garde que les articles correspondants, et le dit", () => {
-    const { boite, compte } = rendre(JEU, "macro");
-    expect(parClasse(boite, "carte")).toHaveLength(3);
+/* -------------------------------------------------------------------------
+ * 3. La recherche
+ * ---------------------------------------------------------------------- */
+
+describe("recherche", () => {
+  it("sur l'accueil, ne garde que les categories qui repondent", () => {
+    const { boite, compte } = rendre(JEU, { recherche: "macro" });
+    expect(parClasse(boite, "groupe-thematique")).toHaveLength(1);
     expect(compte.textContent).toMatch(/3/);
   });
 
   it("cherche aussi dans la THEMATIQUE", () => {
-    const { boite } = rendre(JEU, "banques");
-    expect(parClasse(boite, "carte")).toHaveLength(2);
+    const { boite } = rendre(JEU, { recherche: "banques" });
+    const entrees = parClasse(boite, "groupe-thematique");
+    expect(entrees).toHaveLength(1);
+    expect(entrees[0]?.textContent).toMatch(/banques centrales/);
+  });
+
+  it("sur une page de categorie, filtre DANS la categorie", () => {
+    const { boite } = rendre(JEU, { thematique: "macroeconomie", recherche: "ancien" });
+    expect(parClasse(boite, "t").map((n) => n.textContent)).toEqual(["Macro ancien"]);
   });
 
   it("annonce clairement une recherche sans resultat", () => {
-    const { boite } = rendre(JEU, "zembla");
-    expect(parClasse(boite, "carte")).toHaveLength(0);
+    const { boite } = rendre(JEU, { recherche: "zembla" });
     expect(boite.textContent).toMatch(/aucun/i);
   });
 });
