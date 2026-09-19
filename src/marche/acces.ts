@@ -39,6 +39,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { isSecretParam } from "../audit/redaction.js";
+import { CacheDeReponses } from "../sources/cache.js";
 import { SourceFetchError, readBodyCapped, safeFetch } from "../sources/http.js";
 
 export interface PolitiqueDAcces {
@@ -116,13 +117,6 @@ interface Ouverture {
   motif: string;
 }
 
-interface EntreeDeCache {
-  url: string;
-  horodatageRequete: string;
-  expireA: number;
-  corps: unknown;
-}
-
 const estTransitoireHttp = (statut: number): boolean => statut === 408 || statut >= 500;
 
 /**
@@ -170,7 +164,15 @@ export class AccesMarche {
   private ouverture: Ouverture | null = null;
   private etatLu = false;
   private file: Promise<unknown> = Promise.resolve();
-  private readonly memoire = new Map<string, EntreeDeCache>();
+  /**
+   * Cache PARTAGE avec les adaptateurs de sources (`sources/cache.ts`).
+   *
+   * La logique vivait ici, privee. Elle a ete extraite quand les sources
+   * technologiques en ont eu besoin a leur tour : une seconde implementation
+   * aurait diverge, et c'est celle qu'aucun test ne couvre qui laisse passer
+   * la faute.
+   */
+  private readonly cache: CacheDeReponses;
 
   /**
    * @param dossier ou ecrire cache et etat du disjoncteur ; `null` = memoire seule
@@ -180,6 +182,12 @@ export class AccesMarche {
     private readonly dossier: string | null = null,
     private readonly horloge: Horloge = HORLOGE_REELLE,
   ) {
+    this.cache = new CacheDeReponses({
+      id: politique.id,
+      dir: dossier,
+      horloge: () => this.horloge.maintenant(),
+    });
+
     if (!politique.base.startsWith("https://")) {
       throw new Error(`${politique.nom} : racine non https refusee (${politique.base}).`);
     }
@@ -234,7 +242,7 @@ export class AccesMarche {
     options: OptionsDObtention,
   ): Promise<ReponseDAcces> {
     const url = this.url(chemin, params);
-    const enCache = await this.lireCache(url);
+    const enCache = await this.cache.lire(url);
     if (enCache !== null) {
       return {
         corps: enCache.corps,
@@ -370,7 +378,7 @@ export class AccesMarche {
         );
       }
       if (options.ttlMs > 0) {
-        await this.ecrireCache({
+        await this.cache.ecrire({
           url,
           horodatageRequete,
           expireA: this.horloge.maintenant() + options.ttlMs,
@@ -475,37 +483,6 @@ export class AccesMarche {
 
   /* --- Cache ------------------------------------------------------------- */
 
-  private cheminCache(url: string): string | null {
-    if (this.dossier === null) return null;
-    const empreinte = createHash("sha256").update(url).digest("hex").slice(0, 32);
-    return join(this.dossier, `cache-${this.politique.id}`, `${empreinte}.json`);
-  }
-
-  private async lireCache(url: string): Promise<EntreeDeCache | null> {
-    const t = this.horloge.maintenant();
-    const enMemoire = this.memoire.get(url);
-    if (enMemoire !== undefined) return enMemoire.expireA > t ? enMemoire : null;
-
-    const chemin = this.cheminCache(url);
-    if (chemin === null) return null;
-    try {
-      const e = JSON.parse(await readFile(chemin, "utf8")) as EntreeDeCache;
-      // L'URL est reverifiee : une collision d'empreinte, ou un fichier
-      // deplace a la main, ne doit pas servir la reponse d'une autre requete.
-      if (e.url !== url || typeof e.expireA !== "number" || e.expireA <= t) return null;
-      if (typeof e.horodatageRequete !== "string") return null;
-      this.memoire.set(url, e);
-      return e;
-    } catch {
-      return null;
-    }
-  }
-
-  private async ecrireCache(entree: EntreeDeCache): Promise<void> {
-    this.memoire.set(entree.url, entree);
-    const chemin = this.cheminCache(entree.url);
-    if (chemin !== null) await this.ecrireAtomique(chemin, JSON.stringify(entree));
-  }
 
   /** Ecriture atomique : un arret brutal ne laisse jamais un fichier a moitie ecrit. */
   private async ecrireAtomique(chemin: string, contenu: string): Promise<void> {
