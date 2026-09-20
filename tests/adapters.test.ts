@@ -516,7 +516,10 @@ describe("catalogue des sources", () => {
 
     expect(departs.length, "les deux collectes n'ont pas atteint le reseau").toBe(2);
     expect((departs[1] ?? 0) - (departs[0] ?? 0)).toBeGreaterThanOrEqual(3_000);
-  });
+    // Delai explicite : ce test attend 3 s pour de vrai, soit 2 s seulement
+    // sous le plafond par defaut de vitest. Sous charge, il expirait — constate
+    // une fois sur la suite complete, vert seul.
+  }, 20_000);
 
   it("MET EN CACHE le flux arXiv : la seconde collecte ne repart pas", async () => {
     // Le flux ne change qu'une fois par jour. Redemander a chaque article
@@ -639,6 +642,77 @@ describe("catalogue des sources", () => {
 
     expect(departs.length).toBe(2);
     expect((departs[1] ?? 0) - (departs[0] ?? 0)).toBeGreaterThanOrEqual(1_000);
+  }, 20_000);
+
+  /* ---- Hugging Face : un chiffre de diffusion, et ce qu'il mesure --------- */
+
+  it("branche la mesure de diffusion du Hub", () => {
+    expect(buildSourceCatalogue({}).adapters.map((a) => a.id)).toContain(
+      "huggingface:modeles",
+    );
+  });
+
+  it("classe en TIER 2 l'API du Hub, qui porte la mesure de la plateforme", () => {
+    const c = classifySource(
+      "https://huggingface.co/api/models/Qwen/Qwen3.8-27B?expand%5B%5D=downloads",
+    );
+    expect(c.tier).toBe(2);
+    expect(c.registered).toBe(true);
+  });
+
+  it("laisse les FICHES de modeles en tier 3 : elles sont ecrites par des tiers", () => {
+    // Meme piege que github.com. huggingface.co/<qui-veut>/<son-modele> est une
+    // page redigee par le deposant : la promouvoir au tier 2 donnerait a son
+    // auto-description le statut de donnee publique.
+    for (const url of [
+      "https://huggingface.co/Qwen/Qwen3.8-27B",
+      "https://huggingface.co/quelquun/son-modele",
+      "https://huggingface.co/blog/un-billet",
+    ]) {
+      const c = classifySource(url);
+      expect(c.tier, `${url} promu a tort`).toBe(3);
+      expect(c.registered, `${url} : hote nu affiche au lecteur`).toBe(true);
+    }
+  });
+
+  it("ECARTE le blog du Hub, et dit pourquoi", () => {
+    // MESURE du 2026-09-19 : le flux repond HTTP 200, mais ses billets sont des
+    // notes d'ingenierie — « Async GRPO with LoRA across HF Jobs », « Rebuilding
+    // AUTOMATIC1111 with Gradio Workflow ». Ce n'est pas un canal d'annonces.
+    const motif =
+      buildSourceCatalogue({}).skipped.find((s) => s.id === "huggingface:blog")?.reason ?? "";
+    expect(motif).toMatch(/2026-09-19/);
+    expect(motif.length).toBeGreaterThan(60);
+  });
+
+  it("MET EN CACHE la liste du Hub : la seconde collecte ne repart pas", async () => {
+    const departs = stubQuiDate("[]");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        departs.push(Date.now());
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify([
+              {
+                id: "Qwen/Qwen3.8-27B",
+                createdAt: "2026-08-05T08:22:59.000Z",
+                downloads: 7_365_368,
+                downloadsAllTime: 3_901_265_576,
+              },
+            ]),
+        };
+      }),
+    );
+
+    const hub = parIdentifiant("huggingface:modeles");
+    const q = { topic: "modeles", since: "2026-01-01T00:00:00Z" };
+    await hub.fetch(q);
+    await hub.fetch(q);
+
+    expect(departs.length, "la liste est redemandee a chaque collecte").toBe(1);
   });
 
   it("branche les sources du 2026-09-19 dont le flux repond reellement", () => {

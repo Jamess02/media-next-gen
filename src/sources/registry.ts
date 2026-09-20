@@ -103,6 +103,18 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   // Agregat multi-plateformes, methodologie publiee : la definition meme du
   // tier 2. L'attribution « selon CoinGecko » est exigee a part.
   { domain: "api.coingecko.com", tier: 2, name: "CoinGecko (agregat multi-plateformes)" },
+  // Hugging Face, et le meme decoupage que GitHub plus bas : l'API porte la
+  // MESURE de la plateforme — nombre de requetes servies, methode de comptage
+  // publiee, ce qui est la definition meme du tier 2 — tandis que
+  // huggingface.co/<qui-veut>/<son-modele> est une fiche redigee par le
+  // deposant. Promouvoir le domaine entier donnerait a une auto-description le
+  // statut de donnee publique.
+  {
+    domain: "huggingface.co",
+    tier: 2,
+    name: "Hugging Face (Hub, mesure de diffusion)",
+    pathPrefix: "/api/",
+  },
   // GitHub, et l'ordre compte autant que le tier.
   //
   // La PUBLICATION d'une version est un fait a distance zero : le depot du
@@ -153,6 +165,8 @@ export const SOURCE_REGISTRY: readonly RegisteredSource[] = [
   // par defaut : un domaine inconnu affiche son nom d'hote a la place du nom de
   // l'editeur, et l'assertion « tier 3 » passerait meme apres retrait.
   { domain: "github.com", tier: 3, name: "GitHub (depot public)" },
+  // Fiches de modeles et billets : deposes par des tiers, comme sur GitHub.
+  { domain: "huggingface.co", tier: 3, name: "Hugging Face (contenu depose)" },
   // Acteurs du marche qu'ils commentent. Le tier 3 dit leur distance a la
   // donnee ; leur interet est declare separement et sa mention en gras est
   // exigee par une regle bloquante (protocol/interests.ts).

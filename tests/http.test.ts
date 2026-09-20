@@ -112,6 +112,21 @@ describe("buildUrl", () => {
   it("ne laisse pas de ? quand il n'y a aucun parametre", () => {
     expect(buildUrl("https://x.org/a", {})).toBe("https://x.org/a");
   });
+
+  it("REPETE la clef pour une valeur multiple", () => {
+    // L'API du Hub Hugging Face attend « expand[]=downloads&expand[]=likes ».
+    // Sans repetition, il faudrait concatener l'adresse a la main — et une
+    // adresse construite a la main echappe au journal d'audit comme au test.
+    expect(buildUrl("https://x.org/a", { "expand[]": ["downloads", "likes"] })).toBe(
+      "https://x.org/a?expand%5B%5D=downloads&expand%5B%5D=likes",
+    );
+  });
+
+  it("omet une valeur multiple VIDE plutot que de laisser une clef nue", () => {
+    expect(buildUrl("https://x.org/a", { q: "1", "expand[]": [] })).toBe(
+      "https://x.org/a?q=1",
+    );
+  });
 });
 
 describe("formatMeasure (EP-005)", () => {

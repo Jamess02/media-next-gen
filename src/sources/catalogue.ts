@@ -26,6 +26,7 @@ import {
 } from "../protocol/interests.js";
 import { Espaceur } from "./debit.js";
 import { currentsAdapter } from "./currents.js";
+import { huggingFaceAdapter } from "./huggingface.js";
 import { newsdataAdapter } from "./newsdata.js";
 import { eurostatAdapter } from "./eurostat.js";
 import { ofacAdapter } from "./ofac.js";
@@ -78,6 +79,19 @@ const GITHUB_INTERVALLE_MS = 1_000;
 
 /** Une version parait au mieux quelques fois par semaine. */
 const GITHUB_TTL_MS = 3_600_000;
+
+/**
+ * Debit vers le Hub Hugging Face. Limite officielle relevee le 2026-09-19 :
+ * 500 requetes par fenetre fixe de cinq minutes pour un appelant anonyme, avec
+ * un HTTP 429 et des en-tetes `RateLimit` en cas de depassement.
+ *
+ * Une seconde d'ecart est donc tres large — la valeur existe pour qu'une vague
+ * ne parte pas en rafale, pas parce que la limite serait serree.
+ */
+const HF_INTERVALLE_MS = 1_000;
+
+/** Les compteurs du Hub bougent en continu ; une heure suffit a une vague. */
+const HF_TTL_MS = 3_600_000;
 
 /**
  * Note accolee a chaque version publiee.
@@ -556,9 +570,33 @@ export function buildSourceCatalogue(
         caveat: VERSION_CAVEAT,
       }),
     ),
+
+    // --- Tier 2 par chemin : diffusion mesuree des modeles -----------------
+    //
+    // La technologie s'annonce beaucoup et se mesure peu. Le Hub est l'un des
+    // rares endroits ou la diffusion d'un modele porte un chiffre public.
+    // Encore faut-il dire ce que ce chiffre compte : voir huggingface.ts, ou
+    // les deux grandeurs et leur facteur quinze sont mesures.
+    huggingFaceAdapter({
+      limit: 4,
+      ttlMs: HF_TTL_MS,
+      intervalleMs: HF_INTERVALLE_MS,
+    }),
   ];
 
   const skipped: SkippedSource[] = [];
+
+  // Blog du Hub Hugging Face, MESURE le 2026-09-19 et ecarte le jour meme.
+  skipped.push({
+    id: "huggingface:blog",
+    reason:
+      "MESURE 2026-09-19 : huggingface.co/blog/feed.xml repond HTTP 200 en " +
+      "application/rss+xml, mais ses billets sont des notes d'INGENIERIE — " +
+      "« Async GRPO with LoRA across HF Jobs », « Rebuilding AUTOMATIC1111 " +
+      "with Gradio Workflow » — et non un canal d'annonces. La diffusion des " +
+      "modeles est deja mesuree par huggingface:modeles, qui rend un chiffre " +
+      "plutot qu'un billet.",
+  });
 
   // Depots MESURES le 2026-09-19 et ecartes le jour meme. Les trois repondent
   // HTTP 200 en application/atom+xml : le code de retour ne dit rien de la

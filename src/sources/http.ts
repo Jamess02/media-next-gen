@@ -313,13 +313,27 @@ export async function fetchJson(
  */
 export function buildUrl(
   base: string,
-  params: Record<string, string | number | undefined>,
+  params: Record<string, string | number | readonly string[] | undefined>,
 ): string {
+  // Une valeur MULTIPLE repete la clef : "expand[]=a&expand[]=b", ce qu'attend
+  // l'API du Hub Hugging Face. Sans cela il faudrait concatener l'adresse a la
+  // main, et une adresse construite a la main echappe au journal d'audit comme
+  // au test.
+  //
+  // La clef est encodee elle aussi : "expand[]" porte des crochets, toleres en
+  // clair par la plupart des serveurs mais reserves par la RFC 3986.
   const query = Object.entries(params)
-    .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
-    .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
+    .flatMap(([key, value]) => {
+      if (value === undefined) return [];
+      const valeurs: readonly (string | number)[] = Array.isArray(value)
+        ? (value as readonly string[])
+        : [value as string | number];
+      return valeurs.map(
+        (v) => encodeURIComponent(key) + "=" + encodeURIComponent(String(v)),
+      );
+    })
     .join("&");
-  return query.length > 0 ? `${base}?${query}` : base;
+  return query.length > 0 ? base + "?" + query : base;
 }
 
 /**
