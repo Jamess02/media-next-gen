@@ -63,7 +63,12 @@ export interface Theme {
  * constate le 2026-09-13. Ils sont donc INTERCALES, de sorte que toute fenetre
  * de quatre en contienne au moins deux. Un test le verifie sur trente vagues.
  *
- * Leur nombre compte aussi : treize constats pour une fenetre de quatre, sept
+ * LA TECHNOLOGIE, ajoutee le 2026-09-19, suit la meme regle et pour la meme
+ * raison : ses quatre constats, d'abord ajoutes a la suite, ont produit une
+ * vague entierement technologique et sans aucune geopolitique — le test l'a
+ * vue. Ils sont espaces de quatre, donc au plus un par vague.
+ *
+ * Leur nombre compte aussi : dix-sept constats pour une fenetre de quatre, neuf
  * prospectifs pour une fenetre de deux. Des comptes premiers entre eux avec la
  * taille de la fenetre font defiler TOUTES les combinaisons ; avec huit
  * constats, la rotation ne produisait que deux vagues differentes.
@@ -86,6 +91,12 @@ export const THEMES: readonly Theme[] = [
     mode: "constat",
   },
   {
+    domaine: "technologie",
+    sujet:
+      "diffusion mesuree des modeles ouverts : ce que comptent reellement les telechargements du Hub, et ce qu'ils ne comptent pas",
+    mode: "constat",
+  },
+  {
     domaine: "humanitaire",
     sujet:
       "alertes de catastrophe en cours : ce que le systeme GDACS classe et ce qu'il estime",
@@ -102,6 +113,12 @@ export const THEMES: readonly Theme[] = [
     mode: "constat",
   },
   {
+    domaine: "technologie",
+    sujet:
+      "versions publiees des outils d'intelligence artificielle : ce qui a ete livre, distingue de ce qui a ete annonce",
+    mode: "constat",
+  },
+  {
     domaine: "risque naturel",
     sujet:
       "populations exposees par les dernieres alertes de catastrophe, et ce que l'estimation ne dit pas",
@@ -115,6 +132,12 @@ export const THEMES: readonly Theme[] = [
   {
     domaine: "macro",
     sujet: "croissance du PIB : dernieres donnees publiees pour la France et le monde",
+    mode: "constat",
+  },
+  {
+    domaine: "technologie",
+    sujet:
+      "correctifs recents d'OpenSSL : ce que la bibliotheque cryptographique la plus deployee a corrige, et sur quelles versions",
     mode: "constat",
   },
   {
@@ -135,11 +158,18 @@ export const THEMES: readonly Theme[] = [
     mode: "constat",
   },
   {
+    domaine: "technologie",
+    sujet:
+      "prepublications recentes en apprentissage automatique : ce qui est depose, et ce qu'aucun comite de lecture n'a encore relu",
+    mode: "constat",
+  },
+  {
     domaine: "institutions",
     sujet:
       "communiques recents des banques centrales : Reserve federale et Banque du Japon",
     mode: "constat",
   },
+
 
   // --- Prospectifs : conditions observables, jamais des previsions --------
   {
@@ -182,6 +212,18 @@ export const THEMES: readonly Theme[] = [
     domaine: "macro",
     sujet:
       "ce qui suivrait si la croissance mondiale se maintenait au rythme du dernier releve",
+    mode: "prospectif",
+  },
+  {
+    domaine: "technologie",
+    sujet:
+      "ce qu'impliquerait le maintien du rythme actuel de publication des versions et des modeles ouverts",
+    mode: "prospectif",
+  },
+  {
+    domaine: "technologie",
+    sujet:
+      "ce que supposerait une diffusion durable au niveau de telechargements actuellement mesure",
     mode: "prospectif",
   },
 ];

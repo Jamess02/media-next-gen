@@ -26,7 +26,11 @@
  * les emetteurs sont connus. « non classe » reste donc l'exception.
  */
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
+import { INSTRUCTIONS_VEILLEUR } from "../src/agents/veilleur.js";
 
 import {
   NON_CLASSE,
@@ -171,5 +175,74 @@ describe("ce qui n'est pas classable", () => {
 
   it("ignore une url inanalysable sans faire tomber le classement", () => {
     expect(thematiqueDesSources(["pas une url", u.usgs])).toBe("risques naturels");
+  });
+});
+
+describe("technologie", () => {
+  it("range les prepublications, les versions et la diffusion des modeles", () => {
+    expect(thematiqueDesSources(["https://arxiv.org/abs/2609.20822v1"])).toBe("technologie");
+    expect(
+      thematiqueDesSources(["https://github.com/openssl/openssl/releases/tag/x"]),
+    ).toBe("technologie");
+    expect(
+      thematiqueDesSources(["https://huggingface.co/api/models/Qwen/Qwen3.8-27B"]),
+    ).toBe("technologie");
+  });
+
+  it("ne DEPLACE aucun article deja range : la technologie perd les egalites", () => {
+    // « Ne modifie pas les thematiques existantes » (editeur, 2026-09-19). Un
+    // article qui cite un emetteur deja range ET un emetteur technologique
+    // doit rester la ou il etait : d'ou la place de « technologie » en fin de
+    // liste, l'ordre tranchant les egalites.
+    expect(
+      thematiqueDesSources([
+        "https://www.sec.gov/cgi-bin/browse-edgar",
+        "https://github.com/openssl/openssl/releases/tag/x",
+      ]),
+    ).toBe("regulation");
+    expect(
+      thematiqueDesSources([
+        "https://fred.stlouisfed.org/series/TEST",
+        "https://arxiv.org/abs/2609.20822v1",
+      ]),
+    ).toBe("banques centrales");
+  });
+
+  it("l'emporte quand la technologie est majoritaire", () => {
+    expect(
+      thematiqueDesSources([
+        "https://arxiv.org/abs/1",
+        "https://huggingface.co/api/models/a/b",
+        "https://www.sec.gov/x",
+      ]),
+    ).toBe("technologie");
+  });
+});
+
+describe("les consignes nomment les types REELLEMENT produits", () => {
+  it("le Veilleur connait les trois types technologiques du catalogue", () => {
+    // COUPLAGE REEL, et c'est ce qui rend ce test utile la ou tester une
+    // formulation ne le serait pas : le `type` d'une observation est ecrit
+    // dans le catalogue et relu dans la consigne. Renommer l'un sans l'autre
+    // laisserait une consigne qui ne s'applique plus a rien, sans que rien
+    // n'echoue.
+    for (const type of ["prepublication", "version-publiee", "diffusion-modele"]) {
+      expect(INSTRUCTIONS_VEILLEUR, `type absent des consignes : ${type}`).toContain(type);
+    }
+  });
+
+  it("chaque type nomme dans la consigne est produit par un adaptateur", () => {
+    const source = readFileSync(
+      new URL("../src/sources/catalogue.ts", import.meta.url),
+      "utf8",
+    );
+    for (const type of ["prepublication", "version-publiee"]) {
+      expect(source, `type sans adaptateur : ${type}`).toContain(`type: "${type}"`);
+    }
+    const hf = readFileSync(
+      new URL("../src/sources/huggingface.ts", import.meta.url),
+      "utf8",
+    );
+    expect(hf).toContain('type: "diffusion-modele"');
   });
 });

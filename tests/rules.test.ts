@@ -419,3 +419,111 @@ describe("§3 / §8 — interdiction de promotion", () => {
     ).toHaveLength(0);
   });
 });
+
+describe("§3 / EP-001 — une performance annoncee par l'editeur n'est pas un fait", () => {
+  /**
+   * LE PIEGE PROPRE A LA TECHNOLOGIE, nomme par l'editeur le 2026-09-19 :
+   * l'ecart entre l'annonce et la realite, les chiffres non audites, les
+   * communiques promotionnels.
+   *
+   * Une note de version est au tier 2 — a juste titre : la publication est un
+   * fait a distance zero, et « la version 5.17 est sortie le 10 septembre » se
+   * verifie a l'adresse. Mais le MEME document affirme « deux fois plus
+   * rapide », et ce chiffre-la n'a ete mesure par personne d'autre que son
+   * auteur. `FACT_NEEDS_PRIMARY_SOURCE` ne voit rien : le tier 2 est bien la.
+   *
+   * Une consigne au fact-checker ne suffirait pas — c'est exactement le genre
+   * de nuance qu'un modele laisse passer un jour sur trois.
+   */
+  const source = (url: string) => ({
+    url,
+    tier: 2 as const,
+    date_observed: "2026-09-19T09:00:00Z",
+    date_published: "2026-09-10T12:03:18Z",
+  });
+
+  const NOTE_DE_VERSION = "https://github.com/huggingface/transformers/releases/tag/v5.17.0";
+
+  it("BLOQUE un fait de performance adosse a la seule note de version", () => {
+    const rules = blocking(
+      article({
+        claims: [
+          claim({
+            type: "fait",
+            text: "La version 5.17.0 est deux fois plus rapide que la precedente.",
+            sources: [source(NOTE_DE_VERSION)],
+          }),
+        ],
+      }),
+    ).map((v) => v.rule);
+    expect(rules).toContain("VENDOR_CLAIMED_PERFORMANCE");
+  });
+
+  it("LAISSE PASSER la publication elle-meme, qui est verifiable a l'adresse", () => {
+    const rules = blocking(
+      article({
+        claims: [
+          claim({
+            type: "fait",
+            text: "La version 5.17.0 a ete publiee le 10 septembre 2026.",
+            sources: [source(NOTE_DE_VERSION)],
+          }),
+        ],
+      }),
+    ).map((v) => v.rule);
+    expect(rules).not.toContain("VENDOR_CLAIMED_PERFORMANCE");
+  });
+
+  it("LAISSE PASSER la meme performance si une source INDEPENDANTE l'adosse", () => {
+    // La regle vise l'absence de tiers, pas le sujet. Une mesure publiee
+    // ailleurs que par l'editeur retablit le contradictoire.
+    const rules = blocking(
+      article({
+        claims: [
+          claim({
+            type: "fait",
+            text: "La version 5.17.0 est deux fois plus rapide que la precedente.",
+            sources: [
+              source(NOTE_DE_VERSION),
+              source("https://ec.europa.eu/eurostat/mesure"),
+            ],
+          }),
+        ],
+      }),
+    ).map((v) => v.rule);
+    expect(rules).not.toContain("VENDOR_CLAIMED_PERFORMANCE");
+  });
+
+  it("LAISSE PASSER la meme phrase typee en `estimation`", () => {
+    // Le protocole ne fait pas taire : il requalifie. Dire « l'editeur annonce
+    // un doublement » reste possible, et c'est le type qui le dit.
+    const rules = blocking(
+      article({
+        claims: [
+          claim({
+            type: "estimation",
+            evidence_level: 2,
+            text: "La version 5.17.0 serait deux fois plus rapide que la precedente.",
+            sources: [source(NOTE_DE_VERSION)],
+          }),
+        ],
+      }),
+    ).map((v) => v.rule);
+    expect(rules).not.toContain("VENDOR_CLAIMED_PERFORMANCE");
+  });
+
+  it("vaut aussi pour une fiche de modele deposee par son auteur", () => {
+    const rules = blocking(
+      article({
+        claims: [
+          claim({
+            type: "fait",
+            text: "Le modele surpasse les references de sa categorie.",
+            sources: [source("https://huggingface.co/quelquun/son-modele")],
+          }),
+        ],
+      }),
+    ).map((v) => v.rule);
+    expect(rules).toContain("VENDOR_CLAIMED_PERFORMANCE");
+  });
+});

@@ -53,6 +53,11 @@ export const THEMATIQUES = [
   "humanitaire",
   "regulation",
   "marches",
+  // EN DERNIER, et c'est un choix, pas un oubli. L'ordre tranche les
+  // egalites : place ici, la technologie ne peut DEPLACER aucun article deja
+  // range. Un article citant la SEC et une version GitHub reste en
+  // « regulation », comme avant le 2026-09-19.
+  "technologie",
 ] as const;
 
 export type Thematique = (typeof THEMATIQUES)[number];
@@ -100,6 +105,14 @@ const RANGEMENT: readonly { domaine: string; thematique: Thematique }[] = [
   { domaine: "api.coingecko.com", thematique: "marches" },
   { domaine: "query1.finance.yahoo.com", thematique: "marches" },
   { domaine: "query2.finance.yahoo.com", thematique: "marches" },
+
+  // Les trois emetteurs technologiques branches le 2026-09-19. Ils ne se
+  // ressemblent pas — une archive de prepublications, une forge, une
+  // plateforme de diffusion — mais ils documentent la meme matiere : ce qui
+  // est depose, ce qui est livre, ce qui est effectivement repris.
+  { domaine: "arxiv.org", thematique: "technologie" },
+  { domaine: "github.com", thematique: "technologie" },
+  { domaine: "huggingface.co", thematique: "technologie" },
 ];
 
 /**

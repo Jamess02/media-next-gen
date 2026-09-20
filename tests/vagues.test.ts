@@ -122,6 +122,38 @@ describe("composition d'une vague", () => {
     expect(THEMES.some((t) => t.mode === "constat")).toBe(true);
     expect(THEMES.some((t) => t.mode === "prospectif")).toBe(true);
   });
+
+  it("porte de la TECHNOLOGIE, et pas seulement dans la premiere vague", () => {
+    // Meme raisonnement que pour la geopolitique ci-dessus : c'est la rotation
+    // qui decide de ce qui est produit. Une thematique presente au catalogue
+    // mais jamais tiree ne serait une thematique que sur le papier.
+    const vagues = 12;
+    let avec = 0;
+    for (let i = 0; i < vagues; i += 1) {
+      if (composerVague(i).some((s) => s.domaine === "technologie")) avec += 1;
+    }
+    expect(avec, "la technologie n'apparait pas assez souvent").toBeGreaterThanOrEqual(
+      vagues / 2,
+    );
+  });
+
+  it("les sujets technologiques sont adosses aux sources BRANCHEES", () => {
+    // Un sujet que rien ne peut documenter produit un article refuse par le
+    // gate, ou pire, un article qui invente. Les trois emetteurs branches le
+    // 2026-09-19 sont arXiv, les versions GitHub et la diffusion du Hub.
+    const tech = THEMES.filter((t) => t.domaine === "technologie");
+    expect(tech.length).toBeGreaterThanOrEqual(4);
+    const couvert = /modele|version|prepublication|telechargement|diffusion|correctif/i;
+    for (const t of tech) {
+      expect(t.sujet, `sujet sans emetteur branche : ${t.sujet}`).toMatch(couvert);
+    }
+  });
+
+  it("chaque domaine technologique existe aussi en prospectif", () => {
+    const tech = THEMES.filter((t) => t.domaine === "technologie");
+    expect(tech.some((t) => t.mode === "constat")).toBe(true);
+    expect(tech.some((t) => t.mode === "prospectif")).toBe(true);
+  });
 });
 
 describe("cadence", () => {

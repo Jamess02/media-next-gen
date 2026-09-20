@@ -58,7 +58,7 @@ export interface VeilleurInput {
   consignesDeRelecture?: readonly string[];
 }
 
-const INSTRUCTIONS = `
+export const INSTRUCTIONS_VEILLEUR = `
 Tu arbitres la collecte. Les evenements bruts te sont fournis deja classes en
 tiers par le registre de sources : ne conteste pas un tier, il est derive du
 domaine et fait autorite.
@@ -100,6 +100,23 @@ Ta tache :
    - Un \`signal-de-marche\` (Yahoo Finance) ne se cite JAMAIS. Retiens-le
      seulement comme contexte de pre-verification, motif « signal » : il ne
      peut fonder aucune claim.
+7. TECHNOLOGIE (types \`prepublication\`, \`version-publiee\`,
+   \`diffusion-modele\`). Ce domaine produit plus d'annonces que de faits, et
+   chacune de ces trois sources porte son propre piege :
+   - \`prepublication\` (arXiv) : deposee par ses auteurs, relue par AUCUN
+     comite. Un resultat annonce n'est pas un resultat etabli. Retiens-la comme
+     contexte, jamais comme la source d'un chiffre.
+   - \`version-publiee\` (notes de version) : le NUMERO et la DATE se verifient
+     a l'adresse, et ce sont des faits. Tout ce que la note AFFIRME par
+     ailleurs — performances, capacites, comparaisons — est declare par
+     l'editeur sur son propre produit. Ne retiens jamais une note de version
+     comme source d'une performance sans chercher une mesure independante.
+   - \`diffusion-modele\` (Hub Hugging Face) : le resume distingue les
+     telechargements des TRENTE DERNIERS JOURS du cumul DEPUIS LA PUBLICATION.
+     Les deux chiffres different d'un facteur superieur a dix : ne les confonds
+     jamais, et ne presente aucun des deux comme un nombre d'utilisateurs.
+   Un article de technologie adosse a la seule parole des editeurs n'a pas de
+   source primaire au sens utile : signale-le.
 
 Le champ \`url\` de tes sorties doit reprendre EXACTEMENT une url fournie en
 entree. N'en invente aucune, n'en reformule aucune.
@@ -107,7 +124,7 @@ entree. N'en invente aucune, n'en reformule aucune.
 
 export class Veilleur extends Agent<VeilleurInput, VeilleurOutput> {
   readonly role = "veilleur" as const;
-  protected readonly instructions = INSTRUCTIONS;
+  protected readonly instructions = INSTRUCTIONS_VEILLEUR;
   protected readonly outputSchema = VeilleurOutputSchema;
   protected readonly schemaName = "VeilleurOutput";
 

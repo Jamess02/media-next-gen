@@ -164,6 +164,71 @@ function ruleFactNeedsPrimarySource(article: Article): Violation[] {
 }
 
 /**
+ * Adresses dont le contenu est redige par la PARTIE INTERESSEE elle-meme.
+ *
+ * Elles sont au tier 2 — a juste titre : la publication d'une version est un
+ * fait a distance zero, et « la version 5.17 est sortie le 10 septembre » se
+ * verifie a cette adresse meme. Mais le MEME document affirme « deux fois plus
+ * rapide », et ce chiffre-la n'a ete mesure par personne d'autre que son
+ * auteur.
+ */
+const AUTO_PUBLIE = [/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\//i, /^https:\/\/huggingface\.co\//i];
+
+/**
+ * Marqueurs de PERFORMANCE ou de SUPERIORITE. Volontairement etroits : la
+ * regle ne vise pas tout ce qu'une note de version raconte, mais les seules
+ * affirmations comparatives, celles qu'un tiers devrait avoir mesurees.
+ */
+const PERFORMANCE_ANNONCEE =
+  /\b(plus rapides?|plus performants?|plus effic\w+|plus precis\w*|surpasse\w*|depasse\w*|devance\w*|bat\b|meilleurs?\b|etat de l'art|state of the art|[0-9]+\s*(?:x|fois)\s+(?:plus|moins)|gain de [0-9]|reduit de [0-9]+\s*%)/i;
+
+/**
+ * §3 / EP-001 — une performance ANNONCEE par l'editeur n'est pas un fait.
+ *
+ * LE PIEGE PROPRE A LA TECHNOLOGIE, nomme par l'editeur le 2026-09-19 : l'ecart
+ * entre l'annonce et la realite, les chiffres non audites, les communiques
+ * promotionnels.
+ *
+ * `FACT_NEEDS_PRIMARY_SOURCE` ne voit rien ici : le tier 2 est bien present, et
+ * il est legitime. Ce que cette regle ajoute, c'est que le tier mesure la
+ * DISTANCE A LA DONNEE, pas l'independance de celui qui la produit — un
+ * emetteur est a distance zero de ses propres affirmations comme de ses propres
+ * faits.
+ *
+ * ELLE NE FAIT PAS TAIRE, ELLE REQUALIFIE. « L'editeur annonce un doublement »
+ * reste publiable : c'est une `estimation` ou une `inference`, et le type le
+ * dit au lecteur. Une source independante sur la meme claim leve la regle,
+ * puisque le contradictoire est alors retabli.
+ */
+function ruleVendorClaimedPerformance(article: Article): Violation[] {
+  return article.claims.flatMap((claim, i) => {
+    if (claim.type !== "fait") return [];
+    if (!PERFORMANCE_ANNONCEE.test(claim.text)) return [];
+    // UNE SEULE source independante suffit a lever la regle : le probleme est
+    // l'absence de tiers, pas le sujet.
+    const toutesAutoPubliees =
+      claim.sources.length > 0 &&
+      claim.sources.every((s) => AUTO_PUBLIE.some((motif) => motif.test(s.url)));
+    if (!toutesAutoPubliees) return [];
+    return [
+      {
+        rule: "VENDOR_CLAIMED_PERFORMANCE",
+        clause: "§3 / EP-001",
+        severity: "blocking" as const,
+        message:
+          `La claim "${claim.id}" est typee "fait" et affirme une performance, ` +
+          `mais toutes ses sources sont redigees par la partie interessee ` +
+          `(note de version ou fiche deposee par son auteur). Ce chiffre n'a ete ` +
+          `mesure par aucun tiers : le requalifier en "estimation" ou en ` +
+          `"inference" en l'attribuant a l'editeur, ou l'adosser a une mesure ` +
+          `independante.`,
+        path: `claims[${i}].type`,
+      },
+    ];
+  });
+}
+
+/**
  * §3 — un `fait` dont le TEXTE admet son incompletude se contredit lui-meme.
  *
  * Regle ajoutee apres une execution reelle du pipeline : un modele avait type
@@ -1364,6 +1429,7 @@ const DOCUMENT_RULES = [
   ruleEvidenceLevelIsBacked,
   ruleClaimCeiling,
   ruleFactNeedsPrimarySource,
+  ruleVendorClaimedPerformance,
   ruleFactContradictedByOwnText,
   ruleWeakTierDisclosure,
   ruleInterestDisclosed,
